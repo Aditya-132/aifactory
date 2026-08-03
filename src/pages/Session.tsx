@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
   ArrowLeft,
   Camera,
   CircleStop,
-  Dumbbell,
   Flame,
-  Gauge,
   ScanFace,
   Timer,
   TriangleAlert,
@@ -26,10 +25,6 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Dialog,
   DialogContent,
@@ -45,10 +40,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
+import EffortDial, { zoneFor } from '@/components/EffortDial'
 import {
   EXERCISES,
   angleForExercise,
-  effortZone,
   simulateRep,
   type CameraAngle,
   type ExerciseDef,
@@ -60,10 +55,10 @@ import {
 type Source = 'camera' | 'upload' | 'demo' | null
 
 const SEV_STYLE: Record<FeedItem['severity'], string> = {
-  good: 'text-primary border-primary/30 bg-primary/5',
-  warn: 'text-amber-400 border-amber-400/30 bg-amber-400/5',
-  crit: 'text-red-400 border-red-400/30 bg-red-400/5',
-  info: 'text-sky-400 border-sky-400/30 bg-sky-400/5',
+  good: 'border-emerald-600 bg-emerald-50 text-emerald-950',
+  warn: 'border-amber-600 bg-amber-50 text-amber-950',
+  crit: 'border-red-600 bg-red-50 text-red-950',
+  info: 'border-blue-600 bg-blue-50 text-blue-950',
 }
 
 function now() {
@@ -217,43 +212,43 @@ export default function Session() {
   const latest = reps[reps.length - 1]
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
-  const zone = effortZone(effort)
+  const zone = zoneFor(effort)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
 
   return (
     <div className="min-h-screen bg-background">
+      <div className="noise" />
+
       {/* Header */}
-      <header className="sticky top-0 z-20 border-b border-border bg-background/85 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <Link to="/">
-              <Button variant="ghost" size="icon" aria-label="Back home">
+              <Button variant="ghost" size="icon" aria-label="Back home" className="border-2 border-transparent hover:border-foreground">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <div className="flex items-center gap-2">
-              <Dumbbell className="h-5 w-5 text-primary" />
-              <span className="text-lg font-bold tracking-tight">
-                FormFit<span className="text-primary">AI</span>
-              </span>
-            </div>
-            <Badge variant="outline" className="ml-2 border-primary/40 text-primary">
-              Demo · simulated analysis
-            </Badge>
+            <span className="text-xl font-bold tracking-tight">
+              FORMFIT<span className="text-primary">*</span>
+            </span>
+            <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
+              SIMULATED ANALYSIS
+            </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {phase === 'live' && (
               <>
-                <span className="relative flex h-3 w-3">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+                <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
+                  <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
+                  REC {mm}:{ss}
                 </span>
-                <span className="font-mono text-sm text-muted-foreground">
-                  {mm}:{ss}
-                </span>
-                <Button variant="destructive" size="sm" onClick={endSession}>
-                  <CircleStop className="mr-2 h-4 w-4" /> End set
+                <Button
+                  size="sm"
+                  onClick={endSession}
+                  className="hard-shadow-sm border-2 border-foreground bg-destructive font-bold text-destructive-foreground transition-transform hover:-translate-y-0.5"
+                >
+                  <CircleStop className="mr-1.5 h-4 w-4" /> END SET
                 </Button>
               </>
             )}
@@ -265,7 +260,7 @@ export default function Session() {
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Video / camera panel */}
           <div className="lg:col-span-2">
-            <div className="relative aspect-video overflow-hidden rounded-xl border border-border bg-black">
+            <div className="hard-shadow relative aspect-video overflow-hidden border-2 border-foreground bg-foreground">
               {/* video source */}
               {source === 'camera' && (
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
@@ -273,24 +268,36 @@ export default function Session() {
               {source === 'upload' && videoUrl && (
                 <video src={videoUrl} autoPlay loop muted playsInline className="h-full w-full object-cover" />
               )}
-              {source === 'demo' && <div className="bg-grid absolute inset-0 opacity-60" />}
+              {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
 
               {/* setup overlay */}
               {phase === 'setup' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-black/60 p-6 text-center">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
                   <div>
-                    <h1 className="text-2xl font-bold">Start a set</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Point a camera at your lift, upload a clip, or try the simulated demo.
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">SESSION ROOM</p>
+                    <h1 className="mt-2 text-3xl font-bold uppercase tracking-tight">
+                      Start a <span className="font-serifit normal-case italic text-primary">set</span>
+                    </h1>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Point a camera at your lift, upload a clip, or run the simulated demo.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    <Button size="lg" className="volt-glow font-semibold" onClick={startCamera}>
-                      <Camera className="mr-2 h-5 w-5" /> Use camera
+                  <div className="flex flex-wrap items-center justify-center gap-4">
+                    <Button
+                      size="lg"
+                      className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5"
+                      onClick={startCamera}
+                    >
+                      <Camera className="mr-2 h-5 w-5" /> USE CAMERA
                     </Button>
-                    <Button size="lg" variant="secondary" asChild>
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="hard-shadow-sm border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5"
+                      asChild
+                    >
                       <label className="cursor-pointer">
-                        <Upload className="mr-2 h-5 w-5" /> Upload video
+                        <Upload className="mr-2 h-5 w-5" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -302,12 +309,17 @@ export default function Session() {
                         />
                       </label>
                     </Button>
-                    <Button size="lg" variant="outline" onClick={startDemo}>
-                      <Zap className="mr-2 h-5 w-5" /> Demo mode
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground"
+                      onClick={startDemo}
+                    >
+                      <Zap className="mr-2 h-5 w-5" /> DEMO MODE
                     </Button>
                   </div>
                   {cameraError && (
-                    <p className="flex max-w-md items-center gap-2 text-sm text-amber-400">
+                    <p className="flex max-w-md items-center gap-2 border-2 border-amber-600 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                       <TriangleAlert className="h-4 w-4 shrink-0" /> {cameraError}
                     </p>
                   )}
@@ -319,9 +331,13 @@ export default function Session() {
                 <div className="absolute inset-0">
                   <div className="scanline" />
                   <div className="absolute inset-x-0 bottom-6 flex justify-center">
-                    <Badge className="volt-glow bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-                      <ScanFace className="mr-2 h-4 w-4 animate-pulse" /> Detecting movement &amp; camera angle…
-                    </Badge>
+                    <motion.span
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mono-data hard-shadow-sm border-2 border-foreground bg-primary px-4 py-2 text-xs font-semibold tracking-[0.2em] text-primary-foreground"
+                    >
+                      DETECTING MOVEMENT &amp; CAMERA ANGLE…
+                    </motion.span>
                   </div>
                 </div>
               )}
@@ -329,205 +345,251 @@ export default function Session() {
               {/* pose overlay */}
               <PoseCanvas exercise={exercise} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
 
-              {/* viewfinder corners */}
+              {/* viewfinder furniture */}
               {phase === 'live' && (
                 <>
                   {['left-3 top-3 border-l-2 border-t-2', 'right-3 top-3 border-r-2 border-t-2', 'bottom-3 left-3 border-b-2 border-l-2', 'bottom-3 right-3 border-b-2 border-r-2'].map(
                     (c) => (
-                      <span key={c} className={`absolute h-7 w-7 border-primary/70 ${c}`} />
+                      <span key={c} className={`absolute h-6 w-6 border-primary ${c}`} />
                     ),
                   )}
-                  <Badge className="absolute left-1/2 top-3 -translate-x-1/2 border-primary/40 bg-black/60 text-primary" variant="outline">
-                    {exercise?.name} · {angle} view
-                  </Badge>
+                  <motion.span
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mono-data absolute left-1/2 top-3 -translate-x-1/2 border-2 border-foreground bg-background px-3 py-1 text-[10px] font-semibold tracking-[0.2em]"
+                  >
+                    {exercise?.name.toUpperCase()} — {angle?.toUpperCase()} VIEW
+                  </motion.span>
                 </>
               )}
             </div>
 
             {/* rep chart */}
-            <Card className="mt-4">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <Activity className="h-4 w-4 text-primary" /> Rep tempo &amp; form score
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="h-44">
+            <div className="hard-shadow-sm mt-6 border-2 border-foreground bg-card">
+              <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
+                <Activity className="h-4 w-4 text-primary" />
+                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
+                  REP TEMPO × FORM SCORE
+                </span>
+              </div>
+              <div className="h-44 p-3">
                 {reps.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                    Reps will chart here once your set starts.
+                  <div className="flex h-full items-center justify-center">
+                    <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
+                      REPS PLOT HERE ONCE YOUR SET STARTS
+                    </p>
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                      <CartesianGrid stroke="hsl(240 5% 14%)" vertical={false} />
-                      <XAxis dataKey="rep" tick={{ fill: 'hsl(240 4% 60%)', fontSize: 11 }} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(240 4% 60%)', fontSize: 11 }} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(240 4% 60%)', fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
+                      <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+                      <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+                      <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
                       <Tooltip
-                        contentStyle={{ background: 'hsl(240 8% 7%)', border: '1px solid hsl(240 5% 16%)', borderRadius: 8, fontSize: 12 }}
-                        labelStyle={{ color: 'hsl(240 4% 60%)' }}
+                        contentStyle={{
+                          background: 'hsl(40 33% 97%)',
+                          border: '2px solid hsl(30 8% 7%)',
+                          borderRadius: 2,
+                          fontSize: 12,
+                          fontFamily: 'JetBrains Mono',
+                        }}
+                        labelStyle={{ color: 'hsl(30 5% 38%)' }}
                       />
-                      <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(78 100% 54%)" radius={[4, 4, 0, 0]} maxBarSize={26} />
-                      <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(199 89% 60%)" strokeWidth={2} dot={{ r: 3 }} />
+                      <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
+                      <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
 
           {/* Right rail */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             {/* detection card */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <ScanFace className="h-4 w-4 text-primary" /> Detection
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {exercise ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xl font-bold">{exercise.name}</span>
-                      <Badge className="bg-primary/15 text-primary">{confidence}% conf.</Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary">
-                        <Video className="mr-1 h-3 w-3" /> {angle} angle
-                      </Badge>
-                      {exercise.primaryMuscles.map((m) => (
-                        <Badge key={m} variant="outline" className="text-muted-foreground">
-                          {m}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="pt-1">
-                      <p className="mb-1 text-xs text-muted-foreground">Wrong exercise? Correct it:</p>
-                      <Select value={exercise.id} onValueChange={overrideExercise}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {EXERCISES.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {e.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {phase === 'analyzing' ? 'Classifying movement…' : 'No movement detected yet.'}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <div className="hard-shadow-sm border-2 border-foreground bg-card">
+              <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
+                <ScanFace className="h-4 w-4 text-primary" />
+                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">DETECTION</span>
+              </div>
+              <div className="space-y-3 p-4">
+                <AnimatePresence mode="wait">
+                  {exercise ? (
+                    <motion.div
+                      key={exercise.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-serifit text-2xl italic leading-none">{exercise.name}</span>
+                        <span className="mono-data border-2 border-foreground bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                          {confidence}%
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="mono-data flex items-center gap-1 border-2 border-foreground bg-foreground px-2 py-0.5 text-[10px] tracking-widest text-background">
+                          <Video className="h-3 w-3" /> {angle?.toUpperCase()}
+                        </span>
+                        {exercise.primaryMuscles.map((m) => (
+                          <span key={m} className="mono-data border-2 border-foreground/30 px-2 py-0.5 text-[10px] tracking-widest text-muted-foreground">
+                            {m.toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="pt-3">
+                        <p className="mono-data mb-1.5 text-[9px] tracking-[0.25em] text-muted-foreground">
+                          WRONG LIFT? CORRECT IT:
+                        </p>
+                        <Select value={exercise.id} onValueChange={overrideExercise}>
+                          <SelectTrigger className="h-9 w-full border-2 font-semibold">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="border-2">
+                            {EXERCISES.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>
+                                {e.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.p
+                      key="idle"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
+                    >
+                      {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
 
             {/* stats grid */}
             <div className="grid grid-cols-3 gap-3">
-              <Card className="text-center">
-                <CardContent className="p-3">
-                  <p className="text-3xl font-black text-primary">{reps.length}</p>
-                  <p className="text-xs text-muted-foreground">Reps</p>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-3">
-                  <p className="text-3xl font-black">{latest ? latest.tempo.toFixed(1) : '—'}</p>
-                  <p className="text-xs text-muted-foreground">s / rep</p>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-3">
-                  <p className={`text-3xl font-black ${avgForm >= 80 ? 'text-primary' : avgForm >= 65 ? 'text-amber-400' : avgForm ? 'text-red-400' : ''}`}>
-                    {avgForm || '—'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Form score</p>
-                </CardContent>
-              </Card>
+              {[
+                { label: 'REPS', value: reps.length, key: reps.length, accent: true },
+                { label: 'S / REP', value: latest ? latest.tempo.toFixed(1) : '—', key: latest?.tempo ?? 0, accent: false },
+                { label: 'FORM', value: avgForm || '—', key: avgForm, accent: false },
+              ].map((s) => (
+                <div key={s.label} className="hard-shadow-sm border-2 border-foreground bg-card p-3 text-center">
+                  <motion.p
+                    key={String(s.key)}
+                    initial={{ scale: 1.3, color: '#FF4D00' }}
+                    animate={{ scale: 1, color: s.accent ? '#FF4D00' : '#14110E' }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                    className="mono-data text-3xl font-semibold"
+                  >
+                    {s.value}
+                  </motion.p>
+                  <p className="mono-data mt-1 text-[9px] tracking-[0.25em] text-muted-foreground">{s.label}</p>
+                </div>
+              ))}
             </div>
 
-            {/* effort meter */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center justify-between text-sm font-medium text-muted-foreground">
-                  <span className="flex items-center gap-2">
-                    <Flame className="h-4 w-4 text-primary" /> Effort level
-                  </span>
-                  <span className={`text-sm font-bold ${zone.color}`}>{zone.label}</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-2 flex items-end justify-between">
-                  <span className="text-4xl font-black">{phase === 'live' ? effort : '—'}</span>
-                  <span className="text-xs text-muted-foreground">/ 100</span>
-                </div>
-                <Progress value={phase === 'live' ? effort : 0} className="h-3" />
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Gauge className="h-3.5 w-3.5" /> Fused from rep count, rep-speed decay and facial strain cues.
+            {/* effort dial */}
+            <div className="hard-shadow-sm border-2 border-foreground bg-card">
+              <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2.5">
+                <span className="mono-data flex items-center gap-2 text-[10px] font-semibold tracking-[0.25em]">
+                  <Flame className="h-4 w-4 text-primary" /> EFFORT LEVEL
+                </span>
+                <motion.span
+                  key={zone.label}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mono-data text-[10px] font-semibold tracking-[0.25em]"
+                  style={{ color: zone.color }}
+                >
+                  {zone.label}
+                </motion.span>
+              </div>
+              <div className="flex items-center justify-around gap-4 p-5">
+                <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={150} />
+                <p className="mono-data max-w-[130px] text-[9px] leading-relaxed tracking-[0.15em] text-muted-foreground">
+                  FUSED FROM REP COUNT, REP-SPEED DECAY &amp; FACIAL STRAIN CUES
                 </p>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            {/* live feedback */}
-            <Card className="flex-1">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <Timer className="h-4 w-4 text-primary" /> Live coaching
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-56 pr-3">
-                  {feed.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Coaching cues will appear here.</p>
-                  ) : (
-                    <ul className="space-y-2">
+            {/* live coaching feed */}
+            <div className="hard-shadow-sm flex-1 border-2 border-foreground bg-card">
+              <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
+                <Timer className="h-4 w-4 text-primary" />
+                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">LIVE COACHING</span>
+              </div>
+              <div className="max-h-64 overflow-y-auto p-3">
+                {feed.length === 0 ? (
+                  <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
+                    CUES LAND HERE MID-SET
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    <AnimatePresence initial={false}>
                       {feed.map((item) => (
-                        <li key={item.id} className={`rounded-md border px-3 py-2 text-xs ${SEV_STYLE[item.severity]}`}>
-                          <span className="mr-2 font-mono opacity-60">{item.time}</span>
+                        <motion.li
+                          key={item.id}
+                          layout
+                          initial={{ opacity: 0, x: -16 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                          className={`border-2 px-3 py-2 text-xs ${SEV_STYLE[item.severity]}`}
+                        >
+                          <span className="mono-data mr-2 text-[9px] opacity-60">{item.time}</span>
                           {item.message}
-                        </li>
+                        </motion.li>
                       ))}
-                    </ul>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
+                    </AnimatePresence>
+                  </ul>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </main>
 
       {/* Summary dialog */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="hard-shadow border-2 border-foreground bg-card sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Set summary — {exercise?.name}</DialogTitle>
-            <DialogDescription>
-              {mm}:{ss} · {angle} view · simulated analysis
+            <DialogTitle className="font-serifit text-2xl italic">
+              Set summary — {exercise?.name}
+            </DialogTitle>
+            <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
+              {mm}:{ss} — {angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: 'Reps', value: reps.length },
-              { label: 'Avg form', value: avgForm || '—' },
-              { label: 'Peak effort', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
+              { label: 'REPS', value: reps.length },
+              { label: 'AVG FORM', value: avgForm || '—' },
+              { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
               {
-                label: 'Avg tempo',
+                label: 'AVG TEMPO',
                 value: reps.length ? `${(reps.reduce((a, r) => a + r.tempo, 0) / reps.length).toFixed(1)}s` : '—',
               },
-            ].map((s) => (
-              <div key={s.label} className="rounded-lg border border-border p-3 text-center">
-                <p className="text-2xl font-black text-primary">{s.value}</p>
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-              </div>
+            ].map((s, i) => (
+              <motion.div
+                key={s.label}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="hard-shadow-sm border-2 border-foreground bg-background p-3 text-center"
+              >
+                <p className="mono-data text-2xl font-semibold text-primary">{s.value}</p>
+                <p className="mono-data mt-1 text-[8px] tracking-[0.25em] text-muted-foreground">{s.label}</p>
+              </motion.div>
             ))}
           </div>
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
-            <p className="mb-1 font-semibold text-primary">Coach's note</p>
-            <p className="text-muted-foreground">
+          <div className="border-2 border-foreground bg-primary/10 p-4">
+            <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/80">
               {avgForm >= 80
                 ? 'Strong set. Technique held up under fatigue — keep this load or add a little next time.'
                 : avgForm >= 65
@@ -537,11 +599,13 @@ export default function Session() {
                     : 'No reps recorded — start a set to get a full breakdown.'}
             </p>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={reset}>
-              New session
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" className="hard-shadow-sm border-2 font-bold" onClick={reset}>
+              NEW SESSION
             </Button>
-            <Button onClick={() => setSummaryOpen(false)}>Review footage</Button>
+            <Button className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90" onClick={() => setSummaryOpen(false)}>
+              REVIEW FOOTAGE
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
