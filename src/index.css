@@ -40,10 +40,16 @@
   * {
     @apply border-border;
   }
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: 'ss01', 'cv11';
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
   }
   ::selection {
     background: hsl(var(--primary));
