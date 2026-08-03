@@ -156,7 +156,7 @@ export default function Home() {
   const zone = zoneFor(demoEffort)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen touch-manipulation bg-background pb-20 lg:pb-0">
       <div className="noise" />
 
       {/* ── Header ─────────────────────────────────────────── */}
@@ -186,7 +186,7 @@ export default function Home() {
 
       {/* ── Hero ───────────────────────────────────────────── */}
       <section className="relative overflow-hidden border-b-2 border-foreground">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 lg:grid-cols-2 lg:py-24">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-12 lg:grid-cols-2 lg:gap-12 lg:py-24">
           <div>
             <motion.div variants={rise} initial="hidden" animate="show" custom={0}>
               <span className="mono-data inline-block -rotate-2 border-2 border-foreground bg-primary px-3 py-1 text-[10px] font-semibold tracking-[0.25em] text-primary-foreground">
@@ -199,7 +199,7 @@ export default function Home() {
               initial="hidden"
               animate="show"
               custom={1}
-              className="mt-6 text-5xl font-bold uppercase leading-[0.95] tracking-tight sm:text-7xl"
+              className="mt-6 text-[2.6rem] font-bold uppercase leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl"
             >
               Your camera
               <br />
@@ -224,21 +224,21 @@ export default function Home() {
               initial="hidden"
               animate="show"
               custom={3}
-              className="mt-8 flex flex-wrap gap-4"
+              className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4"
             >
-              <Link to="/session">
+              <Link to="/session" className="w-full sm:w-auto">
                 <Button
                   size="lg"
-                  className="hard-shadow border-2 border-foreground px-8 text-base font-bold transition-transform hover:-translate-y-1"
+                  className="hard-shadow h-12 w-full border-2 border-foreground px-8 text-base font-bold transition-transform hover:-translate-y-1 sm:w-auto"
                 >
                   <Camera className="mr-2 h-5 w-5" /> START LIFTING
                 </Button>
               </Link>
-              <Link to="/session">
+              <Link to="/session" className="w-full sm:w-auto">
                 <Button
                   size="lg"
                   variant="outline"
-                  className="hard-shadow-sm border-2 border-foreground bg-background px-8 text-base font-bold transition-transform hover:-translate-y-1"
+                  className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-background px-8 text-base font-bold transition-transform hover:-translate-y-1 sm:w-auto"
                 >
                   TRY DEMO MODE
                 </Button>
@@ -300,7 +300,7 @@ export default function Home() {
       <Marquee dark />
 
       {/* ── System / features ──────────────────────────────── */}
-      <section id="system" className="mx-auto max-w-7xl px-4 py-20">
+      <section id="system" className="mx-auto max-w-7xl px-4 py-14 lg:py-20">
         <motion.div
           variants={rise}
           initial="hidden"
@@ -344,7 +344,7 @@ export default function Home() {
 
       {/* ── Interactive effort engine ──────────────────────── */}
       <section id="effort" className="border-y-2 border-foreground bg-card">
-        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 lg:grid-cols-2">
+        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-14 lg:grid-cols-2 lg:py-20">
           <motion.div
             variants={rise}
             initial="hidden"
@@ -413,7 +413,7 @@ export default function Home() {
       </section>
 
       {/* ── Protocol / steps ───────────────────────────────── */}
-      <section id="protocol" className="mx-auto max-w-7xl px-4 py-20">
+      <section id="protocol" className="mx-auto max-w-7xl px-4 py-14 lg:py-20">
         <motion.div
           variants={rise}
           initial="hidden"
@@ -453,7 +453,7 @@ export default function Home() {
 
       {/* ── CTA ────────────────────────────────────────────── */}
       <section className="bg-foreground text-background">
-        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-24 text-center">
+        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-16 text-center lg:py-24">
           <motion.h2
             initial={{ opacity: 0, y: 32 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -491,6 +491,20 @@ export default function Home() {
           </div>
         </footer>
       </section>
+
+      {/* mobile sticky CTA */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-foreground bg-background lg:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="px-4 py-3">
+          <Link to="/session">
+            <Button className="hard-shadow-sm h-12 w-full border-2 border-foreground text-base font-bold">
+              <Camera className="mr-2 h-5 w-5" /> START A SET
+            </Button>
+          </Link>
+        </div>
+      </div>
     </div>
   )
 }
