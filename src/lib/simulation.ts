@@ -151,10 +151,3 @@ export function angleForExercise(exercise: ExerciseDef): CameraAngle {
     ? exercise.bestAngle
     : angles[Math.floor(Math.random() * angles.length)]
 }
-
-export function effortZone(effort: number): { label: string; color: string } {
-  if (effort < 35) return { label: 'Warm-up', color: 'text-sky-400' }
-  if (effort < 60) return { label: 'Working', color: 'text-primary' }
-  if (effort < 80) return { label: 'Pushing', color: 'text-amber-400' }
-  return { label: 'Max effort', color: 'text-red-400' }
-}

@@ -8,9 +8,9 @@ interface PoseCanvasProps {
 }
 
 const COLORS = {
-  good: '#a3e635',
-  warn: '#fbbf24',
-  crit: '#f87171',
+  good: '#FF4D00',
+  warn: '#D97706',
+  crit: '#DC2626',
 }
 
 /**
@@ -119,7 +119,7 @@ export default function PoseCanvas({ exercise, severity, active }: PoseCanvasPro
       for (const p of [ankle, knee, hip, shoulder, elbow, wrist]) {
         ctx.beginPath()
         ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2)
-        ctx.fillStyle = '#0a0a0a'
+        ctx.fillStyle = '#14110E'
         ctx.fill()
         ctx.lineWidth = 2.5
         ctx.strokeStyle = color
@@ -152,7 +152,7 @@ export default function PoseCanvas({ exercise, severity, active }: PoseCanvasPro
       ctx.beginPath()
       ctx.moveTo(W * 0.2, ground + 2)
       ctx.lineTo(W * 0.8, ground + 2)
-      ctx.strokeStyle = 'rgba(163,230,53,0.25)'
+      ctx.strokeStyle = 'rgba(255,77,0,0.3)'
       ctx.lineWidth = 2
       ctx.setLineDash([6, 6])
       ctx.stroke()
