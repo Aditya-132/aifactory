@@ -7,6 +7,7 @@ import {
   Camera,
   CircleStop,
   Flame,
+  MessagesSquare,
   ScanFace,
   Timer,
   TriangleAlert,
@@ -53,6 +54,7 @@ import {
 } from '@/lib/simulation'
 
 type Source = 'camera' | 'upload' | 'demo' | null
+type MobileTab = 'coach' | 'data'
 
 const SEV_STYLE: Record<FeedItem['severity'], string> = {
   good: 'border-emerald-600 bg-emerald-50 text-emerald-950',
@@ -77,6 +79,7 @@ export default function Session() {
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [tab, setTab] = useState<MobileTab>('coach')
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -152,7 +155,11 @@ export default function Session() {
   const startCamera = async () => {
     setCameraError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      // rear camera on phones — that's the one pointed at the lifter
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      })
       streamRef.current = stream
       setSource('camera')
       if (videoRef.current) videoRef.current.srcObject = stream
@@ -174,6 +181,17 @@ export default function Session() {
     setSource('demo')
     beginAnalysis()
   }
+
+  // /session?demo=1 jumps straight into a simulated set (handy for hackathon judging)
+  const autoDemoRef = useRef(false)
+  useEffect(() => {
+    if (autoDemoRef.current) return
+    if (new URLSearchParams(window.location.search).get('demo') === '1') {
+      autoDemoRef.current = true
+      startDemo()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const overrideExercise = (id: string) => {
     const ex = EXERCISES.find((e) => e.id === id)
@@ -207,6 +225,7 @@ export default function Session() {
     setFeed([])
     setElapsed(0)
     setSummaryOpen(false)
+    setTab('coach')
   }
 
   const latest = reps[reps.length - 1]
@@ -216,14 +235,82 @@ export default function Session() {
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
 
+  const statTiles = [
+    { label: 'REPS', value: reps.length, key: reps.length, accent: true },
+    { label: 'S / REP', value: latest ? latest.tempo.toFixed(1) : '—', key: latest?.tempo ?? 0, accent: false },
+    { label: 'FORM', value: avgForm || '—', key: avgForm, accent: false },
+  ]
+
+  const chartEl = (
+    <div className="h-48 p-3">
+      {reps.length === 0 ? (
+        <div className="flex h-full items-center justify-center">
+          <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
+            REPS PLOT HERE ONCE YOUR SET STARTS
+          </p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+            <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
+            <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{
+                background: 'hsl(40 33% 97%)',
+                border: '2px solid hsl(30 8% 7%)',
+                borderRadius: 2,
+                fontSize: 12,
+                fontFamily: 'JetBrains Mono',
+              }}
+              labelStyle={{ color: 'hsl(30 5% 38%)' }}
+            />
+            <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
+            <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  )
+
+  const feedEl = (
+    <div className="max-h-64 overflow-y-auto p-3 lg:max-h-72">
+      {feed.length === 0 ? (
+        <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
+          CUES LAND HERE MID-SET
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          <AnimatePresence initial={false}>
+            {feed.map((item) => (
+              <motion.li
+                key={item.id}
+                layout
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                className={`border-2 px-3 py-2 text-xs ${SEV_STYLE[item.severity]}`}
+              >
+                <span className="mono-data mr-2 text-[9px] opacity-60">{item.time}</span>
+                {item.message}
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ul>
+      )}
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen touch-manipulation bg-background pb-24 lg:pb-0">
       <div className="noise" />
 
       {/* Header */}
       <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Link to="/">
               <Button variant="ghost" size="icon" aria-label="Back home" className="border-2 border-transparent hover:border-foreground">
                 <ArrowLeft className="h-5 w-5" />
@@ -236,7 +323,8 @@ export default function Session() {
               SIMULATED ANALYSIS
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          {/* desktop-only: REC + END SET (mobile gets a bottom bar) */}
+          <div className="hidden items-center gap-4 lg:flex">
             {phase === 'live' && (
               <>
                 <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
@@ -256,11 +344,11 @@ export default function Session() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Video / camera panel */}
+      <main className="mx-auto max-w-7xl px-4 py-4 lg:py-6">
+        <div className="lg:grid lg:grid-cols-3 lg:gap-6">
+          {/* ── Video panel (shared, responsive) ── */}
           <div className="lg:col-span-2">
-            <div className="hard-shadow relative aspect-video overflow-hidden border-2 border-foreground bg-foreground">
+            <div className="hard-shadow relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-foreground sm:aspect-video">
               {/* video source */}
               {source === 'camera' && (
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
@@ -278,14 +366,14 @@ export default function Session() {
                     <h1 className="mt-2 text-3xl font-bold uppercase tracking-tight">
                       Start a <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Point a camera at your lift, upload a clip, or run the simulated demo.
+                    <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
+                      Prop your phone up, upload a clip, or run the simulated demo.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-4">
+                  <div className="flex w-full max-w-xs flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <Button
                       size="lg"
-                      className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       onClick={startCamera}
                     >
                       <Camera className="mr-2 h-5 w-5" /> USE CAMERA
@@ -293,7 +381,7 @@ export default function Session() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       asChild
                     >
                       <label className="cursor-pointer">
@@ -312,14 +400,14 @@ export default function Session() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
                       onClick={startDemo}
                     >
                       <Zap className="mr-2 h-5 w-5" /> DEMO MODE
                     </Button>
                   </div>
                   {cameraError && (
-                    <p className="flex max-w-md items-center gap-2 border-2 border-amber-600 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="flex max-w-md items-center gap-2 border-2 border-amber-600 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
                       <TriangleAlert className="h-4 w-4 shrink-0" /> {cameraError}
                     </p>
                   )}
@@ -336,7 +424,7 @@ export default function Session() {
                       animate={{ opacity: 1, y: 0 }}
                       className="mono-data hard-shadow-sm border-2 border-foreground bg-primary px-4 py-2 text-xs font-semibold tracking-[0.2em] text-primary-foreground"
                     >
-                      DETECTING MOVEMENT &amp; CAMERA ANGLE…
+                      DETECTING MOVEMENT &amp; ANGLE…
                     </motion.span>
                   </div>
                 </div>
@@ -356,57 +444,145 @@ export default function Session() {
                   <motion.span
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mono-data absolute left-1/2 top-3 -translate-x-1/2 border-2 border-foreground bg-background px-3 py-1 text-[10px] font-semibold tracking-[0.2em]"
+                    className="mono-data absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap border-2 border-foreground bg-background px-3 py-1 text-[10px] font-semibold tracking-[0.2em]"
                   >
-                    {exercise?.name.toUpperCase()} — {angle?.toUpperCase()} VIEW
+                    {exercise?.name.toUpperCase()} — {angle?.toUpperCase()}
                   </motion.span>
                 </>
               )}
             </div>
 
-            {/* rep chart */}
-            <div className="hard-shadow-sm mt-6 border-2 border-foreground bg-card">
+            {/* desktop chart */}
+            <div className="hard-shadow-sm mt-6 hidden border-2 border-foreground bg-card lg:block">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Activity className="h-4 w-4 text-primary" />
                 <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
                   REP TEMPO × FORM SCORE
                 </span>
               </div>
-              <div className="h-44 p-3">
-                {reps.length === 0 ? (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-                      REPS PLOT HERE ONCE YOUR SET STARTS
-                    </p>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-                      <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
-                      <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'hsl(40 33% 97%)',
-                          border: '2px solid hsl(30 8% 7%)',
-                          borderRadius: 2,
-                          fontSize: 12,
-                          fontFamily: 'JetBrains Mono',
-                        }}
-                        labelStyle={{ color: 'hsl(30 5% 38%)' }}
-                      />
-                      <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
-                      <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+              {chartEl}
             </div>
           </div>
 
-          {/* Right rail */}
-          <div className="flex flex-col gap-5">
+          {/* ── Mobile stack ── */}
+          <div className="mt-5 space-y-5 lg:hidden">
+            {/* stats strip */}
+            <div className="grid grid-cols-3 gap-3">
+              {statTiles.map((s) => (
+                <div key={s.label} className="hard-shadow-sm border-2 border-foreground bg-card p-2.5 text-center">
+                  <motion.p
+                    key={String(s.key)}
+                    initial={{ scale: 1.3, color: '#FF4D00' }}
+                    animate={{ scale: 1, color: s.accent ? '#FF4D00' : '#14110E' }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                    className="mono-data text-2xl font-semibold"
+                  >
+                    {s.value}
+                  </motion.p>
+                  <p className="mono-data mt-0.5 text-[8px] tracking-[0.25em] text-muted-foreground">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* compact effort row */}
+            <div className="hard-shadow-sm flex items-center justify-between border-2 border-foreground bg-card px-4 py-3">
+              <div>
+                <p className="mono-data flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.25em]">
+                  <Flame className="h-4 w-4 text-primary" /> EFFORT
+                </p>
+                <motion.p
+                  key={zone.label}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mono-data mt-1 text-xs font-semibold tracking-[0.25em]"
+                  style={{ color: zone.color }}
+                >
+                  {zone.label}
+                </motion.p>
+              </div>
+              <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={92} />
+            </div>
+
+            {/* compact detection */}
+            <div className="hard-shadow-sm border-2 border-foreground bg-card">
+              <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2">
+                <ScanFace className="h-4 w-4 text-primary" />
+                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">DETECTION</span>
+              </div>
+              <div className="p-3">
+                <AnimatePresence mode="wait">
+                  {exercise ? (
+                    <motion.div
+                      key={exercise.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-serifit text-xl italic leading-none">{exercise.name}</span>
+                        <span className="mono-data flex items-center gap-2 text-[10px]">
+                          <span className="border-2 border-foreground bg-foreground px-1.5 py-0.5 tracking-widest text-background">
+                            {angle?.toUpperCase()}
+                          </span>
+                          <span className="border-2 border-foreground bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground">
+                            {confidence}%
+                          </span>
+                        </span>
+                      </div>
+                      <Select value={exercise.id} onValueChange={overrideExercise}>
+                        <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2">
+                          {EXERCISES.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </motion.div>
+                  ) : (
+                    <motion.p
+                      key="idle"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
+                    >
+                      {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* tabs: coaching / chart */}
+            <div className="hard-shadow-sm border-2 border-foreground bg-card">
+              <div className="grid grid-cols-2 border-b-2 border-foreground">
+                {(
+                  [
+                    ['coach', MessagesSquare, 'COACHING'],
+                    ['data', Activity, 'DATA'],
+                  ] as const
+                ).map(([id, Icon, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id)}
+                    className={`mono-data flex h-11 items-center justify-center gap-2 text-[10px] font-semibold tracking-[0.25em] transition-colors ${
+                      tab === id ? 'bg-foreground text-background' : 'bg-card text-muted-foreground'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" /> {label}
+                  </button>
+                ))}
+              </div>
+              {tab === 'coach' ? feedEl : chartEl}
+            </div>
+          </div>
+
+          {/* ── Desktop right rail ── */}
+          <div className="hidden flex-col gap-5 lg:flex">
             {/* detection card */}
             <div className="hard-shadow-sm border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
@@ -473,11 +649,7 @@ export default function Session() {
 
             {/* stats grid */}
             <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'REPS', value: reps.length, key: reps.length, accent: true },
-                { label: 'S / REP', value: latest ? latest.tempo.toFixed(1) : '—', key: latest?.tempo ?? 0, accent: false },
-                { label: 'FORM', value: avgForm || '—', key: avgForm, accent: false },
-              ].map((s) => (
+              {statTiles.map((s) => (
                 <div key={s.label} className="hard-shadow-sm border-2 border-foreground bg-card p-3 text-center">
                   <motion.p
                     key={String(s.key)}
@@ -523,40 +695,42 @@ export default function Session() {
                 <Timer className="h-4 w-4 text-primary" />
                 <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">LIVE COACHING</span>
               </div>
-              <div className="max-h-64 overflow-y-auto p-3">
-                {feed.length === 0 ? (
-                  <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
-                    CUES LAND HERE MID-SET
-                  </p>
-                ) : (
-                  <ul className="space-y-2">
-                    <AnimatePresence initial={false}>
-                      {feed.map((item) => (
-                        <motion.li
-                          key={item.id}
-                          layout
-                          initial={{ opacity: 0, x: -16 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-                          className={`border-2 px-3 py-2 text-xs ${SEV_STYLE[item.severity]}`}
-                        >
-                          <span className="mono-data mr-2 text-[9px] opacity-60">{item.time}</span>
-                          {item.message}
-                        </motion.li>
-                      ))}
-                    </AnimatePresence>
-                  </ul>
-                )}
-              </div>
+              {feedEl}
             </div>
           </div>
         </div>
       </main>
 
+      {/* mobile sticky action bar while a set is live */}
+      <AnimatePresence>
+        {phase === 'live' && (
+          <motion.div
+            initial={{ y: 80 }}
+            animate={{ y: 0 }}
+            exit={{ y: 80 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+            className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-foreground bg-background lg:hidden"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.15em]">
+                <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
+                REC {mm}:{ss}
+              </span>
+              <Button
+                onClick={endSession}
+                className="hard-shadow-sm h-11 border-2 border-foreground bg-destructive px-6 font-bold text-destructive-foreground"
+              >
+                <CircleStop className="mr-1.5 h-4 w-4" /> END SET
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Summary dialog */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="hard-shadow border-2 border-foreground bg-card sm:max-w-lg">
+        <DialogContent className="hard-shadow max-h-[90dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
               Set summary — {exercise?.name}
@@ -599,11 +773,11 @@ export default function Session() {
                     : 'No reps recorded — start a set to get a full breakdown.'}
             </p>
           </div>
-          <div className="flex justify-end gap-3">
-            <Button variant="outline" className="hard-shadow-sm border-2 font-bold" onClick={reset}>
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="hard-shadow-sm h-12 border-2 font-bold sm:h-10" onClick={reset}>
               NEW SESSION
             </Button>
-            <Button className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90" onClick={() => setSummaryOpen(false)}>
+            <Button className="hard-shadow-sm h-12 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90 sm:h-10" onClick={() => setSummaryOpen(false)}>
               REVIEW FOOTAGE
             </Button>
           </div>
