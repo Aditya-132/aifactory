@@ -15,6 +15,16 @@ import {
   Video,
   Zap,
 } from 'lucide-react'
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from 'recharts'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,10 +42,6 @@ import {
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
-import VelocityAngleChart from '@/components/VelocityAngleChart'
-import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
-import SettingsModal from '@/components/SettingsModal'
-import { saveSessionToHistory } from '@/lib/workoutStore'
 import {
   EXERCISES,
   angleForExercise,
@@ -124,30 +130,26 @@ export default function Session() {
     [pushFeed],
   )
 
-  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(EXERCISES[0].id)
-
   const beginAnalysis = useCallback(
-    () => {
-      const chosenEx = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
-      const chosenAngle = chosenEx.recommendation.recommendedCamera
-      setExercise(chosenEx)
-      setAngle(chosenAngle)
-
+    (picked?: ExerciseDef) => {
+      const ex = picked ?? EXERCISES[Math.floor(Math.random() * EXERCISES.length)]
       setPhase('analyzing')
       pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
       window.setTimeout(() => {
-        setConfidence(92 + Math.floor(Math.random() * 6))
+        setExercise(ex)
+        setAngle(angleForExercise(ex))
+        setConfidence(88 + Math.floor(Math.random() * 10))
         setPhase('live')
         pushFeed(
-          `Movement locked: ${chosenEx.name}. Viewport set to ${chosenAngle.toUpperCase()} view — ${chosenEx.keyJoint.toLowerCase()} angle tracked.`,
+          `Movement classified: ${ex.name}. Best viewing angle locked — ${ex.keyJoint.toLowerCase()} angle tracked.`,
           'info',
         )
         pushFeed('Set started — rep counting live', 'info')
         clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-        scheduleNextRep(chosenEx)
-      }, 2400)
+        scheduleNextRep(ex)
+      }, 2600)
     },
-    [selectedExerciseId, pushFeed, scheduleNextRep],
+    [pushFeed, scheduleNextRep],
   )
 
   const startCamera = async () => {
@@ -191,30 +193,24 @@ export default function Session() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const overrideExercise = (id: string) => {
+    const ex = EXERCISES.find((e) => e.id === id)
+    if (!ex) return
+    clearTimers()
+    setExercise(ex)
+    setAngle(angleForExercise(ex))
+    setConfidence(91 + Math.floor(Math.random() * 7))
+    pushFeed(`Exercise corrected to ${ex.name} — recalibrating tracking`, 'info')
+    clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
+    scheduleNextRep(ex)
+  }
 
-
-  const endSession = useCallback(() => {
+  const endSession = () => {
     clearTimers()
     stopCamera()
     setPhase('ended')
     setSummaryOpen(true)
-    pushFeed('Set complete — calculating final form & effort breakdown', 'info')
-
-    if (exercise && angle) {
-      saveSessionToHistory({
-        exerciseId: exercise.id,
-        exerciseName: exercise.name,
-        cameraAngle: angle,
-        durationSeconds: elapsed,
-        totalReps: repsRef.current.length,
-        avgFormScore: repsRef.current.length
-          ? Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
-          : 0,
-        peakEffort: repsRef.current.length ? Math.max(...repsRef.current.map((r) => r.effort)) : 0,
-        reps: repsRef.current,
-      })
-    }
-  }, [clearTimers, stopCamera, pushFeed, exercise, angle, elapsed])
+  }
 
   const reset = () => {
     clearTimers()
@@ -233,10 +229,8 @@ export default function Session() {
   }
 
   const latest = reps[reps.length - 1]
-  const avgForm = reps.length
-    ? Math.round(reps.reduce((acc, r) => acc + r.formScore, 0) / reps.length)
-    : 0
-  const effort = latest ? latest.effort : 0
+  const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
+  const effort = latest?.effort ?? 0
   const zone = zoneFor(effort)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
@@ -248,8 +242,35 @@ export default function Session() {
   ]
 
   const chartEl = (
-    <div className="p-3">
-      <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
+    <div className="h-48 p-3">
+      {reps.length === 0 ? (
+        <div className="flex h-full items-center justify-center">
+          <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
+            REPS PLOT HERE ONCE YOUR SET STARTS
+          </p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
+            <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
+            <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{
+                background: 'hsl(40 33% 97%)',
+                border: '2px solid hsl(30 8% 7%)',
+                borderRadius: 2,
+                fontSize: 12,
+                fontFamily: 'JetBrains Mono',
+              }}
+              labelStyle={{ color: 'hsl(30 5% 38%)' }}
+            />
+            <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
+            <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
     </div>
   )
 
@@ -302,33 +323,11 @@ export default function Session() {
               SIMULATED ANALYSIS
             </span>
           </div>
-          {/* top bar action items: Settings, Reopen Summary, End Set, New Set */}
-          <div className="flex items-center gap-2">
-            <SettingsModal />
-
-            {phase === 'ended' && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSummaryOpen(true)}
-                  className="hard-shadow-sm border-2 border-foreground bg-primary font-bold text-primary-foreground transition-transform hover:-translate-y-0.5"
-                >
-                  <Activity className="mr-1.5 h-3.5 w-3.5" /> SUMMARY
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={reset}
-                  className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5"
-                >
-                  NEW SET
-                </Button>
-              </>
-            )}
-
+          {/* desktop-only: REC + END SET (mobile gets a bottom bar) */}
+          <div className="hidden items-center gap-4 lg:flex">
             {phase === 'live' && (
               <>
-                <span className="mono-data hidden items-center gap-2 text-xs font-semibold tracking-[0.2em] sm:flex">
+                <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
                   <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
                   REC {mm}:{ss}
                 </span>
@@ -361,95 +360,32 @@ export default function Session() {
 
               {/* setup overlay */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-5 bg-background/85 p-6 text-center z-10 overflow-y-auto backdrop-blur-sm">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
                   <div>
-                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
-                    <h1 className="mt-1 text-2xl sm:text-3xl font-bold uppercase tracking-tight">
-                      Configure your <span className="font-serifit normal-case italic text-primary">set</span>
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">SESSION ROOM</p>
+                    <h1 className="mt-2 text-3xl font-bold uppercase tracking-tight">
+                      Start a <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
-                    <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-                      Select your exercise movement to see the AI camera placement guidance and preview animation.
+                    <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
+                      Prop your phone up, upload a clip, or run the simulated demo.
                     </p>
                   </div>
-
-                  {/* AI Camera Recommendation Card */}
-                  {(() => {
-                    const currentEx = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
-                    const rec = currentEx.recommendation
-                    return (
-                      <div className="w-full max-w-sm space-y-3 border-2 border-foreground bg-card p-4 hard-shadow-sm text-left">
-                        <div>
-                          <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
-                            SELECT EXERCISE
-                          </label>
-                          <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
-                            <SelectTrigger className="h-10 w-full border-2 font-mono text-xs font-semibold bg-background">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="border-2 font-mono text-xs">
-                              {EXERCISES.map((e) => (
-                                <SelectItem key={e.id} value={e.id}>
-                                  {e.name} ({e.primaryMuscles[0]})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* AI Camera Guidance Box with Live 3D Pose Canvas Animation Preview */}
-                        <div className="border-2 border-foreground/20 bg-background p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="mono-data text-[10px] font-bold tracking-wider text-primary flex items-center gap-1.5">
-                              <Camera className="h-3.5 w-3.5" /> AI RECOMMENDED PLACEMENT
-                            </span>
-                            <span className="mono-data border border-foreground bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
-                              {rec.recommendedCamera.toUpperCase()} VIEW
-                            </span>
-                          </div>
-
-                          {/* Interactive 3D Skeleton Camera Angle Preview Window */}
-                          <div className="relative h-44 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
-                            <div className="bg-grid absolute inset-0" />
-                            <PoseCanvas
-                              exercise={currentEx}
-                              angle={rec.recommendedCamera}
-                              severity="good"
-                              active={true}
-                            />
-                          </div>
-
-                          <div className="mono-data text-[9px] font-bold text-muted-foreground tracking-wider">
-                            PREVIEW: <span className="text-foreground">{rec.recommendedCamera.toUpperCase()} PERSPECTIVE</span>
-                          </div>
-
-                          <p className="text-xs font-semibold text-foreground">
-                            Position your camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approximately <span className="font-bold">{rec.recommendedDistance}</span> away.
-                          </p>
-                          <div className="text-[10px] text-muted-foreground space-y-1 font-mono">
-                            <p><strong>Framing:</strong> {rec.framingGuidance}</p>
-                            <p><strong>Note:</strong> {rec.setupNotes}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()}
-
-                  <div className="flex w-full max-w-xs flex-col gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+                  <div className="flex w-full max-w-xs flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <Button
                       size="lg"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       onClick={startCamera}
                     >
-                      <Camera className="mr-2 h-4 w-4" /> START CAMERA
+                      <Camera className="mr-2 h-5 w-5" /> USE CAMERA
                     </Button>
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       asChild
                     >
                       <label className="cursor-pointer">
-                        <Upload className="mr-2 h-4 w-4" /> UPLOAD VIDEO
+                        <Upload className="mr-2 h-5 w-5" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -464,10 +400,10 @@ export default function Session() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
+                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
                       onClick={startDemo}
                     >
-                      <Zap className="mr-2 h-4 w-4" /> DEMO MODE
+                      <Zap className="mr-2 h-5 w-5" /> DEMO MODE
                     </Button>
                   </div>
                   {cameraError && (
@@ -480,7 +416,7 @@ export default function Session() {
 
               {/* analyzing overlay */}
               {phase === 'analyzing' && (
-                <div className="absolute inset-0 z-10">
+                <div className="absolute inset-0">
                   <div className="scanline" />
                   <div className="absolute inset-x-0 bottom-6 flex justify-center">
                     <motion.span
@@ -494,45 +430,13 @@ export default function Session() {
                 </div>
               )}
 
-              {/* pose overlay: active in live phase or setup preview */}
+              {/* pose overlay */}
               <PoseCanvas
-                exercise={phase === 'setup' ? EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0] : exercise}
-                angle={phase === 'setup' ? (EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]).recommendation.recommendedCamera : angle}
+                exercise={exercise}
                 severity={latest?.severity ?? 'good'}
-                active={phase === 'live' || phase === 'setup'}
+                active={phase === 'live'}
+                angle={angle}
               />
-
-              {/* ended phase banner overlay if summary modal is closed */}
-              {phase === 'ended' && !summaryOpen && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/90 p-6 text-center backdrop-blur-sm z-20">
-                  <div className="hard-shadow max-w-sm border-2 border-foreground bg-card p-6 space-y-4">
-                    <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">SET COMPLETE</p>
-                    <h2 className="text-xl font-bold uppercase">
-                      {exercise?.name} — {reps.length} Reps
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      Session data saved. Re-open the telemetry breakdown or start a new set.
-                    </p>
-                    <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                      <Button
-                        size="sm"
-                        onClick={() => setSummaryOpen(true)}
-                        className="hard-shadow-sm flex-1 border-2 border-foreground bg-primary font-bold text-primary-foreground"
-                      >
-                        <Activity className="mr-1.5 h-3.5 w-3.5" /> VIEW SUMMARY
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={reset}
-                        className="hard-shadow-sm flex-1 border-2 border-foreground bg-background font-bold"
-                      >
-                        NEW SET
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* viewfinder furniture */}
               {phase === 'live' && (
@@ -631,6 +535,18 @@ export default function Session() {
                           </span>
                         </span>
                       </div>
+                      <Select value={exercise.id} onValueChange={overrideExercise}>
+                        <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2">
+                          {EXERCISES.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </motion.div>
                   ) : (
                     <motion.p
@@ -704,13 +620,22 @@ export default function Session() {
                           </span>
                         ))}
                       </div>
-                      <div className="pt-2">
-                        <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
-                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
+                      <div className="pt-3">
+                        <p className="mono-data mb-1.5 text-[9px] tracking-[0.25em] text-muted-foreground">
+                          WRONG LIFT? CORRECT IT:
                         </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Exercise &amp; camera angle are locked for this set to preserve telemetry integrity.
-                        </p>
+                        <Select value={exercise.id} onValueChange={overrideExercise}>
+                          <SelectTrigger className="h-9 w-full border-2 font-semibold">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="border-2">
+                            {EXERCISES.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>
+                                {e.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </motion.div>
                   ) : (
@@ -810,22 +735,20 @@ export default function Session() {
 
       {/* Summary dialog */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="hard-shadow max-h-[92dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-3xl">
+        <DialogContent className="hard-shadow max-h-[90dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
               Set summary — {exercise?.name}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
-              {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
+              {mm}:{ss} — {angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS
             </DialogDescription>
           </DialogHeader>
-
-          {/* Quick stats grid */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: 'REPS', value: reps.length },
               { label: 'AVG FORM', value: avgForm || '—' },
-              { label: 'PEAK EFFORT', value: reps.length ? `${Math.max(...reps.map((r) => r.effort))}%` : '—' },
+              { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
               {
                 label: 'AVG TEMPO',
                 value: reps.length ? `${(reps.reduce((a, r) => a + r.tempo, 0) / reps.length).toFixed(1)}s` : '—',
@@ -843,20 +766,6 @@ export default function Session() {
               </motion.div>
             ))}
           </div>
-
-          {/* Velocity & Angle Telemetry Graph */}
-          <div className="border-2 border-foreground bg-background p-4 hard-shadow-sm space-y-2">
-            <p className="mono-data text-[10px] font-bold tracking-[0.2em] text-primary">POST-WORKOUT TELEMETRY ANALYTICS</p>
-            <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
-          </div>
-
-          {/* Rep-by-Rep Exercise Summary Table */}
-          <div className="space-y-2">
-            <p className="mono-data text-[10px] font-bold tracking-[0.2em] text-foreground">REP-BY-REP BREAKDOWN TABLE</p>
-            <ExerciseSummaryTable reps={reps} />
-          </div>
-
-          {/* Coach's note */}
           <div className="border-2 border-foreground bg-primary/10 p-4">
             <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
             <p className="mt-2 text-sm leading-relaxed text-foreground/80">
@@ -869,13 +778,12 @@ export default function Session() {
                     : 'No reps recorded — start a set to get a full breakdown.'}
             </p>
           </div>
-
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button variant="outline" className="hard-shadow-sm h-12 border-2 font-bold sm:h-10" onClick={reset}>
               NEW SESSION
             </Button>
             <Button className="hard-shadow-sm h-12 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90 sm:h-10" onClick={() => setSummaryOpen(false)}>
-              CLOSE SUMMARY
+              REVIEW FOOTAGE
             </Button>
           </div>
         </DialogContent>
