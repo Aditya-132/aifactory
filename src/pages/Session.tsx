@@ -15,16 +15,6 @@ import {
   Video,
   Zap,
 } from 'lucide-react'
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from 'recharts'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,6 +32,10 @@ import {
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
+import VelocityAngleChart from '@/components/VelocityAngleChart'
+import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
+import SettingsModal from '@/components/SettingsModal'
+import { saveSessionToHistory } from '@/lib/workoutStore'
 import {
   EXERCISES,
   angleForExercise,
@@ -205,12 +199,28 @@ export default function Session() {
     scheduleNextRep(ex)
   }
 
-  const endSession = () => {
+  const endSession = useCallback(() => {
     clearTimers()
     stopCamera()
     setPhase('ended')
     setSummaryOpen(true)
-  }
+    pushFeed('Set complete — calculating final form & effort breakdown', 'info')
+
+    if (exercise && angle) {
+      saveSessionToHistory({
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        cameraAngle: angle,
+        durationSeconds: elapsed,
+        totalReps: repsRef.current.length,
+        avgFormScore: repsRef.current.length
+          ? Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
+          : 0,
+        peakEffort: repsRef.current.length ? Math.max(...repsRef.current.map((r) => r.effort)) : 0,
+        reps: repsRef.current,
+      })
+    }
+  }, [clearTimers, stopCamera, pushFeed, exercise, angle, elapsed])
 
   const reset = () => {
     clearTimers()
@@ -229,11 +239,11 @@ export default function Session() {
   }
 
   const latest = reps[reps.length - 1]
-  const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
-  const effort = latest?.effort ?? 0
+  const avgForm = reps.length
+    ? Math.round(reps.reduce((acc, r) => acc + r.formScore, 0) / reps.length)
+    : 0
+  const effort = latest ? latest.effort : 0
   const zone = zoneFor(effort)
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
-  const ss = String(elapsed % 60).padStart(2, '0')
 
   const statTiles = [
     { label: 'REPS', value: reps.length, key: reps.length, accent: true },
@@ -242,35 +252,8 @@ export default function Session() {
   ]
 
   const chartEl = (
-    <div className="h-48 p-3">
-      {reps.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            REPS PLOT HERE ONCE YOUR SET STARTS
-          </p>
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-            <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
-            <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <Tooltip
-              contentStyle={{
-                background: 'hsl(40 33% 97%)',
-                border: '2px solid hsl(30 8% 7%)',
-                borderRadius: 2,
-                fontSize: 12,
-                fontFamily: 'JetBrains Mono',
-              }}
-              labelStyle={{ color: 'hsl(30 5% 38%)' }}
-            />
-            <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
-            <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+    <div className="p-3">
+      <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
     </div>
   )
 
@@ -323,8 +306,9 @@ export default function Session() {
               SIMULATED ANALYSIS
             </span>
           </div>
-          {/* desktop-only: REC + END SET (mobile gets a bottom bar) */}
-          <div className="hidden items-center gap-4 lg:flex">
+          {/* desktop-only: REC + END SET + Settings */}
+          <div className="hidden items-center gap-3 lg:flex">
+            <SettingsModal />
             {phase === 'live' && (
               <>
                 <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
@@ -730,20 +714,22 @@ export default function Session() {
 
       {/* Summary dialog */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="hard-shadow max-h-[90dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-lg">
+        <DialogContent className="hard-shadow max-h-[92dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
               Set summary — {exercise?.name}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
-              {mm}:{ss} — {angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS
+              {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
             </DialogDescription>
           </DialogHeader>
+
+          {/* Quick stats grid */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               { label: 'REPS', value: reps.length },
               { label: 'AVG FORM', value: avgForm || '—' },
-              { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
+              { label: 'PEAK EFFORT', value: reps.length ? `${Math.max(...reps.map((r) => r.effort))}%` : '—' },
               {
                 label: 'AVG TEMPO',
                 value: reps.length ? `${(reps.reduce((a, r) => a + r.tempo, 0) / reps.length).toFixed(1)}s` : '—',
@@ -761,6 +747,20 @@ export default function Session() {
               </motion.div>
             ))}
           </div>
+
+          {/* Velocity & Angle Telemetry Graph */}
+          <div className="border-2 border-foreground bg-background p-4 hard-shadow-sm space-y-2">
+            <p className="mono-data text-[10px] font-bold tracking-[0.2em] text-primary">POST-WORKOUT TELEMETRY ANALYTICS</p>
+            <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
+          </div>
+
+          {/* Rep-by-Rep Exercise Summary Table */}
+          <div className="space-y-2">
+            <p className="mono-data text-[10px] font-bold tracking-[0.2em] text-foreground">REP-BY-REP BREAKDOWN TABLE</p>
+            <ExerciseSummaryTable reps={reps} />
+          </div>
+
+          {/* Coach's note */}
           <div className="border-2 border-foreground bg-primary/10 p-4">
             <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
             <p className="mt-2 text-sm leading-relaxed text-foreground/80">
@@ -773,12 +773,13 @@ export default function Session() {
                     : 'No reps recorded — start a set to get a full breakdown.'}
             </p>
           </div>
+
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button variant="outline" className="hard-shadow-sm h-12 border-2 font-bold sm:h-10" onClick={reset}>
               NEW SESSION
             </Button>
             <Button className="hard-shadow-sm h-12 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90 sm:h-10" onClick={() => setSummaryOpen(false)}>
-              REVIEW FOOTAGE
+              CLOSE SUMMARY
             </Button>
           </div>
         </DialogContent>

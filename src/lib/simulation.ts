@@ -94,10 +94,15 @@ export const EXERCISES: ExerciseDef[] = [
 export interface RepData {
   rep: number
   tempo: number // seconds
+  concentricTime: number // concentric push/drive phase (s)
+  eccentricTime: number // eccentric lowering phase (s)
+  peakAngle: number // degrees (e.g. knee/elbow/hip angle)
+  velocity: number // angular velocity (deg/s)
   formScore: number // 0-100
   effort: number // 0-100
   cue: string
   severity: 'good' | 'warn' | 'crit'
+  flaws: string[]
 }
 
 export interface FeedItem {
@@ -109,11 +114,32 @@ export interface FeedItem {
 
 export type SessionPhase = 'setup' | 'analyzing' | 'live' | 'ended'
 
+const FLAW_MAP: Record<string, string[]> = {
+  squat: ['Knee Valgus', 'Shallow Depth', 'Chest Dip', 'Heel Lift', 'Lumbar Flexion'],
+  deadlift: ['Spinal Flexion', 'Hips Early', 'Bar Drift', 'Soft Lockout', 'Slack Pull'],
+  bench: ['Elbow Flare', 'Bar Bounce', 'Hips Lifting', 'Unstable Path', 'Wrists Bent'],
+  ohp: ['Excessive Leanback', 'Forward Loop', 'Asymmetric Press', 'Core Flaccid'],
+  curl: ['Torso Swing', 'Elbow Drift', 'Momentum Rep', 'Short ROM'],
+  lunge: ['Knee Inward Collapse', 'Short Stride', 'Forward Torso Tilt', 'Loss of Balance'],
+}
+
 /** Deterministic-ish simulated rep generator. */
 export function simulateRep(repIndex: number, exercise: ExerciseDef): RepData {
   const fatigue = Math.min(repIndex * 0.028, 0.5)
   const tempoNoise = (Math.random() - 0.5) * 0.5
   const tempo = +(exercise.baseTempo * (1 + fatigue) + tempoNoise).toFixed(2)
+
+  // Split concentric vs eccentric
+  const concRatio = 0.4 + (Math.random() - 0.5) * 0.08
+  const concentricTime = +(tempo * concRatio).toFixed(2)
+  const eccentricTime = +(tempo - concentricTime).toFixed(2)
+
+  // Peak joint angle simulation based on exercise
+  const baseAngle = exercise.id === 'squat' ? 115 : exercise.id === 'bench' ? 88 : exercise.id === 'deadlift' ? 125 : 95
+  const peakAngle = Math.max(50, Math.min(160, Math.round(baseAngle + (Math.random() - 0.5) * 16 - fatigue * 8)))
+
+  // Rep velocity (deg/s) inversely related to tempo
+  const velocity = +(peakAngle / (tempo || 1) * 1.1).toFixed(1)
 
   // Form score: mostly high, occasional dips, degrades slightly with fatigue
   const roll = Math.random()
@@ -126,6 +152,16 @@ export function simulateRep(repIndex: number, exercise: ExerciseDef): RepData {
     35,
     Math.min(99, Math.round(base + (Math.random() - 0.5) * 10 - fatigue * 14)),
   )
+
+  // Flaws array mapping
+  const possibleFlaws = FLAW_MAP[exercise.id] || FLAW_MAP['squat']
+  const flaws: string[] = []
+  if (severity === 'crit') {
+    flaws.push(possibleFlaws[Math.floor(Math.random() * possibleFlaws.length)])
+    if (Math.random() > 0.5) flaws.push(possibleFlaws[(Math.floor(Math.random() * possibleFlaws.length) + 1) % possibleFlaws.length])
+  } else if (severity === 'warn') {
+    flaws.push(possibleFlaws[Math.floor(Math.random() * possibleFlaws.length)])
+  }
 
   // Effort: grows with reps, tempo slowdown and low form (grinding)
   const grind = tempo / exercise.baseTempo - 1
@@ -141,7 +177,19 @@ export function simulateRep(repIndex: number, exercise: ExerciseDef): RepData {
   const pool = exercise.cues[severity]
   const cue = pool[Math.floor(Math.random() * pool.length)]
 
-  return { rep: repIndex, tempo, formScore, effort, cue, severity }
+  return {
+    rep: repIndex,
+    tempo,
+    concentricTime,
+    eccentricTime,
+    peakAngle,
+    velocity,
+    formScore,
+    effort,
+    cue,
+    severity,
+    flaws,
+  }
 }
 
 export function angleForExercise(exercise: ExerciseDef): CameraAngle {
