@@ -244,6 +244,8 @@ export default function Session() {
     : 0
   const effort = latest ? latest.effort : 0
   const zone = zoneFor(effort)
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
+  const ss = String(elapsed % 60).padStart(2, '0')
 
   const statTiles = [
     { label: 'REPS', value: reps.length, key: reps.length, accent: true },
