@@ -603,18 +603,6 @@ export default function Session() {
                           </span>
                         </span>
                       </div>
-                      <Select value={exercise.id} onValueChange={overrideExercise}>
-                        <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-2">
-                          {EXERCISES.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {e.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </motion.div>
                   ) : (
                     <motion.p
