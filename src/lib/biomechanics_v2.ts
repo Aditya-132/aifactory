@@ -131,6 +131,50 @@ function scoreJointAgainstRange(
   }
 }
 
+export function evaluateExerciseFormTolerance({
+  mode,
+  exerciseId,
+  knee_angle,
+  hip_angle,
+  back_angle,
+}: { mode: FormToleranceMode; exerciseId: ExerciseId } & JointAngles): FormToleranceResult {
+  const targetMap = EXERCISE_ANGLE_TARGETS[exerciseId]
+  const details = { knee: '', hip: '', back: '' }
+  const statusParts: string[] = []
+
+  const scoreField = (key: 'knee' | 'hip' | 'back', value: number) => {
+    const target = targetMap[key]
+    if (!target) {
+      details[key] = `${key.toUpperCase()} not scored for ${exerciseId}`
+      return
+    }
+
+    const result = scoreJointAgainstRange(
+      value,
+      target,
+      mode,
+      key === 'knee' ? 'PERFECT DEPTH' : key === 'hip' ? 'HIP STACKED' : 'BACK NEUTRAL',
+    )
+
+    details[key] = result.detail
+    if (result.isIdeal) statusParts.push(result.status)
+  }
+
+  scoreField('knee', knee_angle)
+  scoreField('hip', hip_angle)
+  scoreField('back', back_angle)
+
+  let severity: FormToleranceResult['severity'] = 'good'
+  if (statusParts.length < 1) severity = 'warn'
+  if (statusParts.length === 0) severity = 'crit'
+
+  return {
+    status: statusParts.length ? statusParts.join(' • ') : 'FORM ALERT',
+    severity,
+    details,
+  }
+}
+
 export function evaluateFormTolerance({
   mode,
   knee_angle,
@@ -170,44 +214,6 @@ export function evaluateFormTolerance({
 
   let severity: FormToleranceResult['severity'] = 'good'
   if (statusParts.length < 2) severity = 'warn'
-  if (statusParts.length === 0) severity = 'crit'
-
-  return {
-    status: statusParts.length ? statusParts.join(' • ') : 'FORM ALERT',
-    severity,
-    details,
-  }
-}
-
-export function evaluateExerciseFormTolerance({
-  mode,
-  exerciseId,
-  knee_angle,
-  hip_angle,
-  back_angle,
-}: { mode: FormToleranceMode; exerciseId: ExerciseId } & JointAngles): FormToleranceResult {
-  const targetMap = EXERCISE_ANGLE_TARGETS[exerciseId]
-  const details = { knee: '', hip: '', back: '' }
-  const statusParts: string[] = []
-
-  const scoreField = (key: 'knee' | 'hip' | 'back', value: number) => {
-    const target = targetMap[key]
-    if (!target) {
-      details[key] = `${key.toUpperCase()} not scored for ${exerciseId}`
-      return
-    }
-
-    const result = scoreJointAgainstRange(value, target, mode, key === 'knee' ? 'PERFECT DEPTH' : key === 'hip' ? 'HIP STACKED' : 'BACK NEUTRAL')
-    details[key] = result.detail
-    if (result.isIdeal) statusParts.push(result.status)
-  }
-
-  scoreField('knee', knee_angle)
-  scoreField('hip', hip_angle)
-  scoreField('back', back_angle)
-
-  let severity: FormToleranceResult['severity'] = 'good'
-  if (statusParts.length < 1) severity = 'warn'
   if (statusParts.length === 0) severity = 'crit'
 
   return {
