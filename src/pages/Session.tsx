@@ -396,7 +396,7 @@ export default function Session() {
                           </Select>
                         </div>
 
-                        {/* AI Camera Guidance Box */}
+                        {/* AI Camera Guidance Box with Live 3D Pose Canvas Animation Preview */}
                         <div className="border-2 border-foreground/20 bg-background p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="mono-data text-[10px] font-bold tracking-wider text-primary flex items-center gap-1.5">
@@ -406,6 +406,21 @@ export default function Session() {
                               {rec.recommendedCamera.toUpperCase()} VIEW
                             </span>
                           </div>
+
+                          {/* Interactive 3D Skeleton Camera Angle Preview Window */}
+                          <div className="relative h-44 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
+                            <div className="bg-grid absolute inset-0" />
+                            <PoseCanvas
+                              exercise={currentEx}
+                              angle={rec.recommendedCamera}
+                              severity="good"
+                              active={true}
+                            />
+                            <div className="absolute bottom-2 left-2 rounded border border-foreground bg-background/90 px-2 py-0.5 text-[9px] font-bold mono-data">
+                              PREVIEW: {rec.recommendedCamera.toUpperCase()} PERSPECTIVE
+                            </div>
+                          </div>
+
                           <p className="text-xs font-semibold text-foreground">
                             Position your camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approximately <span className="font-bold">{rec.recommendedDistance}</span> away.
                           </p>
