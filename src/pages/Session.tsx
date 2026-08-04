@@ -124,26 +124,31 @@ export default function Session() {
     [pushFeed],
   )
 
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(EXERCISES[0].id)
+  const [selectedCameraAngle, setSelectedCameraAngle] = useState<CameraAngle>('Side')
+
   const beginAnalysis = useCallback(
-    (picked?: ExerciseDef) => {
-      const ex = picked ?? EXERCISES[Math.floor(Math.random() * EXERCISES.length)]
+    () => {
+      const chosenEx = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
+      const chosenAngle = selectedCameraAngle || angleForExercise(chosenEx)
+      setExercise(chosenEx)
+      setAngle(chosenAngle)
+
       setPhase('analyzing')
       pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
       window.setTimeout(() => {
-        setExercise(ex)
-        setAngle(angleForExercise(ex))
-        setConfidence(88 + Math.floor(Math.random() * 10))
+        setConfidence(92 + Math.floor(Math.random() * 6))
         setPhase('live')
         pushFeed(
-          `Movement classified: ${ex.name}. Best viewing angle locked — ${ex.keyJoint.toLowerCase()} angle tracked.`,
+          `Movement locked: ${chosenEx.name}. Viewport set to ${chosenAngle.toUpperCase()} view — ${chosenEx.keyJoint.toLowerCase()} angle tracked.`,
           'info',
         )
         pushFeed('Set started — rep counting live', 'info')
         clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-        scheduleNextRep(ex)
-      }, 2600)
+        scheduleNextRep(chosenEx)
+      }, 2400)
     },
-    [pushFeed, scheduleNextRep],
+    [selectedExerciseId, selectedCameraAngle, pushFeed, scheduleNextRep],
   )
 
   const startCamera = async () => {
@@ -187,17 +192,7 @@ export default function Session() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const overrideExercise = (id: string) => {
-    const ex = EXERCISES.find((e) => e.id === id)
-    if (!ex) return
-    clearTimers()
-    setExercise(ex)
-    setAngle(angleForExercise(ex))
-    setConfidence(91 + Math.floor(Math.random() * 7))
-    pushFeed(`Exercise corrected to ${ex.name} — recalibrating tracking`, 'info')
-    clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-    scheduleNextRep(ex)
-  }
+
 
   const endSession = useCallback(() => {
     clearTimers()
@@ -367,32 +362,71 @@ export default function Session() {
 
               {/* setup overlay */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-5 bg-background p-6 text-center z-10 overflow-y-auto">
                   <div>
-                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">SESSION ROOM</p>
-                    <h1 className="mt-2 text-3xl font-bold uppercase tracking-tight">
-                      Start a <span className="font-serifit normal-case italic text-primary">set</span>
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
+                    <h1 className="mt-1 text-2xl sm:text-3xl font-bold uppercase tracking-tight">
+                      Configure your <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
-                    <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
-                      Prop your phone up, upload a clip, or run the simulated demo.
+                    <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+                      Select your exercise movement and camera angle before pressing start.
                     </p>
                   </div>
-                  <div className="flex w-full max-w-xs flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+
+                  {/* Pre-workout configuration selectors */}
+                  <div className="w-full max-w-xs space-y-3 border-2 border-foreground bg-card p-3 hard-shadow-sm text-left">
+                    <div>
+                      <label className="mono-data block text-[10px] font-bold tracking-wider text-foreground mb-1">
+                        1. SELECT EXERCISE
+                      </label>
+                      <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
+                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2 font-mono text-xs">
+                          {EXERCISES.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name} ({e.primaryMuscles[0]})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="mono-data block text-[10px] font-bold tracking-wider text-foreground mb-1">
+                        2. SELECT CAMERA ANGLE
+                      </label>
+                      <Select value={selectedCameraAngle} onValueChange={(val) => setSelectedCameraAngle(val as CameraAngle)}>
+                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2 font-mono text-xs">
+                          <SelectItem value="Side">Side View (Squat / Deadlift)</SelectItem>
+                          <SelectItem value="Front">Front View (OHP / Curl)</SelectItem>
+                          <SelectItem value="Three-quarter">Three-Quarter View (Bench)</SelectItem>
+                          <SelectItem value="Rear">Rear View</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex w-full max-w-xs flex-col gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <Button
                       size="lg"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       onClick={startCamera}
                     >
-                      <Camera className="mr-2 h-5 w-5" /> USE CAMERA
+                      <Camera className="mr-2 h-4 w-4" /> START CAMERA
                     </Button>
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       asChild
                     >
                       <label className="cursor-pointer">
-                        <Upload className="mr-2 h-5 w-5" /> UPLOAD VIDEO
+                        <Upload className="mr-2 h-4 w-4" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -407,10 +441,10 @@ export default function Session() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
                       onClick={startDemo}
                     >
-                      <Zap className="mr-2 h-5 w-5" /> DEMO MODE
+                      <Zap className="mr-2 h-4 w-4" /> DEMO MODE
                     </Button>
                   </div>
                   {cameraError && (
@@ -654,22 +688,13 @@ export default function Session() {
                           </span>
                         ))}
                       </div>
-                      <div className="pt-3">
-                        <p className="mono-data mb-1.5 text-[9px] tracking-[0.25em] text-muted-foreground">
-                          WRONG LIFT? CORRECT IT:
+                      <div className="pt-2">
+                        <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
                         </p>
-                        <Select value={exercise.id} onValueChange={overrideExercise}>
-                          <SelectTrigger className="h-9 w-full border-2 font-semibold">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="border-2">
-                            {EXERCISES.map((e) => (
-                              <SelectItem key={e.id} value={e.id}>
-                                {e.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          Exercise &amp; camera angle are locked for this set to preserve telemetry integrity.
+                        </p>
                       </div>
                     </motion.div>
                   ) : (
