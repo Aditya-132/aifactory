@@ -14,9 +14,47 @@ const COLORS = {
   crit: '#DC2626',
 }
 
+const ANGLE_YAW: Record<CameraAngle, number> = {
+  Front: 0,
+  'Three-quarter': Math.PI / 4, // 45°
+  Side: Math.PI / 2, // 90°
+  Rear: Math.PI, // 180°
+}
+
+interface Point3D {
+  x: number
+  y: number
+  z: number
+}
+
+function project(
+  pt: Point3D,
+  yaw: number,
+  cx: number,
+  cy: number,
+  u: number,
+): { x: number; y: number; z: number } {
+  // Rotate around Y-axis (Yaw)
+  const cosY = Math.cos(yaw)
+  const sinY = Math.sin(yaw)
+
+  const rx = pt.x * cosY + pt.z * sinY
+  const ry = pt.y
+  const rz = -pt.x * sinY + pt.z * cosY
+
+  // Simple orthographic / weak perspective projection
+  const scale = 1 / (1 + rz * 0.002)
+  return {
+    x: cx + rx * u * scale,
+    y: cy + ry * u * scale,
+    z: rz,
+  }
+}
+
 export default function PoseCanvas({ exercise, angle = 'Side', severity, active }: PoseCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stateRef = useRef({ exercise, angle, severity, active })
+  const currentYawRef = useRef<number>(ANGLE_YAW[angle || 'Side'] || Math.PI / 2)
   stateRef.current = { exercise, angle, severity, active }
 
   useEffect(() => {
@@ -48,103 +86,103 @@ export default function PoseCanvas({ exercise, angle = 'Side', severity, active 
         return
       }
 
-      const currentAngle = viewAngle || ex.bestAngle || 'Side'
+      const targetAngle = viewAngle || ex.bestAngle || 'Side'
+      const targetYaw = ANGLE_YAW[targetAngle] ?? Math.PI / 2
+
+      // Smooth lerp transition for camera rotation (~300ms)
+      currentYawRef.current += (targetYaw - currentYawRef.current) * 0.12
+
       const tempo = ex.baseTempo * 1000
       const t = ((now - start) % tempo) / tempo
-      // rep cycle 0 (start/top) -> 1 (inflection/bottom) -> 0
+      // Rep motion cycle 0 (top/start) -> 1 (inflection/bottom) -> 0
       const s = (1 - Math.cos(t * Math.PI * 2)) / 2
 
       const color = COLORS[sev]
       const cx = W * 0.5
-      const ground = H * 0.88
+      const cy = H * 0.55
       const u = H / 100 // proportional unit
 
-      // Joint coordinates setup per exercise & perspective angle
-      let ankleL = { x: cx - 5 * u, y: ground }
-      let ankleR = { x: cx + 5 * u, y: ground }
-      let kneeL = { x: cx - 4 * u, y: ground - 22 * u }
-      let kneeR = { x: cx + 4 * u, y: ground - 22 * u }
-      let hipL = { x: cx - 3 * u, y: ground - 42 * u }
-      let hipR = { x: cx + 3 * u, y: ground - 42 * u }
-      let shoulderL = { x: cx - 7 * u, y: hipL.y - 24 * u }
-      let shoulderR = { x: cx + 7 * u, y: hipR.y - 24 * u }
-      let head = { x: cx, y: shoulderL.y - 9 * u }
-      let elbowL = { x: cx - 11 * u, y: shoulderL.y + 12 * u }
-      let elbowR = { x: cx + 11 * u, y: shoulderR.y + 12 * u }
-      let wristL = { x: cx - 12 * u, y: shoulderL.y + 22 * u }
-      let wristR = { x: cx + 12 * u, y: shoulderR.y + 22 * u }
+      // Standard anatomical 3D keypoints (centered around origin x=0, y=0, z=0)
+      let head: Point3D = { x: 0, y: -34, z: 0 }
+      let shoulderL: Point3D = { x: -9, y: -24, z: 0 }
+      let shoulderR: Point3D = { x: 9, y: -24, z: 0 }
+      let hipL: Point3D = { x: -6, y: 4, z: 0 }
+      let hipR: Point3D = { x: 6, y: 4, z: 0 }
+      let kneeL: Point3D = { x: -6, y: 22, z: 0 }
+      let kneeR: Point3D = { x: 6, y: 22, z: 0 }
+      let ankleL: Point3D = { x: -6, y: 38, z: 0 }
+      let ankleR: Point3D = { x: 6, y: 38, z: 0 }
 
-      if (currentAngle === 'Side') {
-        // Single line profile view
-        const hipDrop = (ex.id === 'squat' ? 16 : ex.id === 'lunge' ? 14 : ex.id === 'deadlift' ? 10 : 2) * s * u
-        const lean = (ex.id === 'deadlift' ? 14 : ex.id === 'squat' ? 6 : 2) * s * u
+      let elbowL: Point3D = { x: -13, y: -10, z: 0 }
+      let elbowR: Point3D = { x: 13, y: -10, z: 0 }
+      let wristL: Point3D = { x: -14, y: 2, z: 0 }
+      let wristR: Point3D = { x: 14, y: 2, z: 0 }
 
-        const ankle = { x: cx - 4 * u, y: ground }
-        const knee = { x: cx + (3 + 9 * s) * u, y: ground - 22 * u }
-        const hip = { x: cx - 3 * u + 2 * s * u, y: ground - 42 * u + hipDrop }
-        const shoulder = { x: cx + lean, y: hip.y - 26 * u }
-        head = { x: shoulder.x + 2 * u, y: shoulder.y - 8 * u }
+      // Apply exercise-specific motion vectors in local 3D space
+      if (ex.id === 'squat' || ex.id === 'lunge') {
+        const drop = 16 * s
+        hipL.y += drop; hipR.y += drop
+        shoulderL.y += drop; shoulderR.y += drop
+        head.y += drop
+        kneeL.z += 8 * s; kneeR.z += 8 * s // knees push forward
+        kneeL.x -= (sev === 'crit' ? -3 : 2) * s
+        kneeR.x += (sev === 'crit' ? -3 : 2) * s
+      } else if (ex.id === 'deadlift') {
+        const drop = 12 * s
+        const hingeZ = 12 * s
+        hipL.y += drop; hipR.y += drop
+        shoulderL.y += drop; shoulderR.y += drop
+        shoulderL.z += hingeZ; shoulderR.z += hingeZ // torso hinges forward
+        head.y += drop; head.z += hingeZ
+        wristL.y += drop; wristR.y += drop
+        wristL.z += hingeZ; wristR.z += hingeZ
+      } else if (ex.id === 'bench') {
+        // Lay down horizontal along Z axis
+        head = { x: 0, y: 20, z: -25 }
+        shoulderL = { x: -10, y: 20, z: -16 }; shoulderR = { x: 10, y: 20, z: -16 }
+        hipL = { x: -7, y: 20, z: 8 }; hipR = { x: 7, y: 20, z: 8 }
+        kneeL = { x: -9, y: 32, z: 18 }; kneeR = { x: 9, y: 32, z: 18 }
+        ankleL = { x: -11, y: 38, z: 18 }; ankleR = { x: 11, y: 38, z: 18 }
 
-        let elbow = { x: shoulder.x + 6 * u, y: shoulder.y + 10 * u }
-        let wrist = { x: shoulder.x + 5 * u, y: shoulder.y + 18 * u }
-
-        if (ex.id === 'bench') {
-          // Horizontal bench setup
-          hip.y = ground - 14 * u
-          shoulder.y = ground - 14 * u
-          shoulder.x = cx - 18 * u
-          head.x = shoulder.x - 8 * u
-          head.y = shoulder.y
-          const barDrop = 12 * (1 - s) * u
-          wrist = { x: shoulder.x + 12 * u, y: shoulder.y - 18 * u + barDrop }
-          elbow = { x: shoulder.x + 8 * u, y: shoulder.y - 4 * u + barDrop * 0.6 }
-        } else if (ex.id === 'ohp') {
-          wrist = { x: shoulder.x + 2 * u, y: shoulder.y + 12 * u - 26 * (1 - s) * u }
-          elbow = { x: shoulder.x + 6 * u, y: (shoulder.y + wrist.y) / 2 + 4 * u }
-        } else if (ex.id === 'curl') {
-          wrist = { x: shoulder.x + 8 * u - 10 * s * u, y: shoulder.y + 20 * u - 14 * s * u }
-          elbow = { x: shoulder.x + 5 * u, y: shoulder.y + 11 * u }
-        }
-
-        ankleL = ankle; ankleR = ankle
-        kneeL = knee; kneeR = knee
-        hipL = hip; hipR = hip
-        shoulderL = shoulder; shoulderR = shoulder
-        elbowL = elbow; elbowR = elbow
-        wristL = wrist; wristR = wrist
-      } else {
-        // Front / Rear / Three-quarter 3D-like Perspective
-        const offset3D = currentAngle === 'Three-quarter' ? 4 * u : 0
-        head.x += offset3D
-
-        if (ex.id === 'squat') {
-          const drop = 15 * s * u
-          const kneeFlare = (sev === 'crit' ? -2 : 4) * s * u
-          hipL.y += drop; hipR.y += drop
-          shoulderL.y += drop; shoulderR.y += drop
-          head.y += drop
-          kneeL.x -= kneeFlare; kneeR.x += kneeFlare
-        } else if (ex.id === 'ohp') {
-          const pressHeight = 24 * (1 - s) * u
-          wristL.y = shoulderL.y + 8 * u - pressHeight
-          wristR.y = shoulderR.y + 8 * u - pressHeight
-          elbowL.y = (shoulderL.y + wristL.y) / 2 + 2 * u
-          elbowR.y = (shoulderR.y + wristR.y) / 2 + 2 * u
-        } else if (ex.id === 'curl') {
-          const curlHeight = 15 * s * u
-          wristL.y -= curlHeight; wristR.y -= curlHeight
-          wristL.x += 3 * s * u; wristR.x -= 3 * s * u
-        } else if (ex.id === 'bench') {
-          const barHeight = 14 * s * u
-          wristL.y += barHeight; wristR.y += barHeight
-          elbowL.y += barHeight * 0.8; elbowR.y += barHeight * 0.8
-        }
+        const barPress = 16 * (1 - s)
+        wristL = { x: -10, y: 20 - barPress, z: -16 }
+        wristR = { x: 10, y: 20 - barPress, z: -16 }
+        elbowL = { x: -15, y: 20 - barPress * 0.5, z: -16 }
+        elbowR = { x: 15, y: 20 - barPress * 0.5, z: -16 }
+      } else if (ex.id === 'ohp') {
+        const pressHeight = 22 * (1 - s)
+        wristL = { x: -8, y: -24 - pressHeight, z: 0 }
+        wristR = { x: 8, y: -24 - pressHeight, z: 0 }
+        elbowL = { x: -12, y: -14 - pressHeight * 0.5, z: 2 }
+        elbowR = { x: 12, y: -14 - pressHeight * 0.5, z: 2 }
+      } else if (ex.id === 'curl') {
+        const curlArcY = 16 * s
+        const curlArcZ = 12 * s
+        wristL = { x: -9, y: 2 - curlArcY, z: curlArcZ }
+        wristR = { x: 9, y: 2 - curlArcY, z: curlArcZ }
+        elbowL = { x: -11, y: 2, z: 2 }; elbowR = { x: 11, y: 2, z: 2 }
       }
 
+      // Project all 3D points through viewpoint rotation matrix
+      const yaw = currentYawRef.current
+      const pHead = project(head, yaw, cx, cy, u)
+      const pS_L = project(shoulderL, yaw, cx, cy, u)
+      const pS_R = project(shoulderR, yaw, cx, cy, u)
+      const pH_L = project(hipL, yaw, cx, cy, u)
+      const pH_R = project(hipR, yaw, cx, cy, u)
+      const pK_L = project(kneeL, yaw, cx, cy, u)
+      const pK_R = project(kneeR, yaw, cx, cy, u)
+      const pA_L = project(ankleL, yaw, cx, cy, u)
+      const pA_R = project(ankleR, yaw, cx, cy, u)
+      const pE_L = project(elbowL, yaw, cx, cy, u)
+      const pE_R = project(elbowR, yaw, cx, cy, u)
+      const pW_L = project(wristL, yaw, cx, cy, u)
+      const pW_R = project(wristR, yaw, cx, cy, u)
+
       const bones = [
-        [ankleL, kneeL], [kneeL, hipL], [hipL, shoulderL], [shoulderL, elbowL], [elbowL, wristL],
-        [ankleR, kneeR], [kneeR, hipR], [hipR, shoulderR], [shoulderR, elbowR], [elbowR, wristR],
-        [hipL, hipR], [shoulderL, shoulderR],
+        [pA_L, pK_L], [pK_L, pH_L], [pH_L, pS_L], [pS_L, pE_L], [pE_L, pW_L],
+        [pA_R, pK_R], [pK_R, pH_R], [pH_R, pS_R], [pS_R, pE_R], [pE_R, pW_R],
+        [pH_L, pH_R], [pS_L, pS_R],
       ]
 
       ctx.lineCap = 'round'
@@ -154,7 +192,7 @@ export default function PoseCanvas({ exercise, angle = 'Side', severity, active 
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
         ctx.strokeStyle = color
-        ctx.globalAlpha = currentAngle === 'Rear' ? 0.6 : 0.85
+        ctx.globalAlpha = 0.85
         ctx.lineWidth = 4
         ctx.stroke()
       }
@@ -162,17 +200,14 @@ export default function PoseCanvas({ exercise, angle = 'Side', severity, active 
 
       // Draw head
       ctx.beginPath()
-      ctx.arc(head.x, head.y, 5.5 * u, 0, Math.PI * 2)
+      ctx.arc(pHead.x, pHead.y, 5.5 * u, 0, Math.PI * 2)
       ctx.strokeStyle = color
       ctx.lineWidth = 4
       ctx.stroke()
 
       // Draw joint markers
-      const allJoints = currentAngle === 'Side' 
-        ? [ankleL, kneeL, hipL, shoulderL, elbowL, wristL]
-        : [ankleL, ankleR, kneeL, kneeR, hipL, hipR, shoulderL, shoulderR, elbowL, elbowR, wristL, wristR]
-
-      for (const p of allJoints) {
+      const joints = [pA_L, pA_R, pK_L, pK_R, pH_L, pH_R, pS_L, pS_R, pE_L, pE_R, pW_L, pW_R]
+      for (const p of joints) {
         ctx.beginPath()
         ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2)
         ctx.fillStyle = '#14110E'
@@ -182,24 +217,16 @@ export default function PoseCanvas({ exercise, angle = 'Side', severity, active 
         ctx.stroke()
       }
 
-      // Key joint angle readout label
-      const targetJoint = ex.keyJoint === 'Elbow' ? elbowR : ex.keyJoint === 'Hip' ? hipR : kneeR
-      const ang = (Math.atan2(shoulderR.y - targetJoint.y, shoulderR.x - targetJoint.x) - Math.atan2(wristR.y - targetJoint.y, wristR.x - targetJoint.x)) * (180 / Math.PI)
-      const deg = Math.abs(((ang + 540) % 360) - 180)
-
-      ctx.font = '600 12px ui-monospace, monospace'
-      ctx.fillStyle = color
-      ctx.fillText(`${ex.keyJoint} ${Math.round(deg || 90)}°`, targetJoint.x + 14, targetJoint.y - 8)
-
-      // Perspective camera badge overlay
+      // Viewport HUD indicator
       ctx.font = '600 10px ui-monospace, monospace'
       ctx.fillStyle = 'rgba(255,255,255,0.7)'
-      ctx.fillText(`VIEWPORT: ${currentAngle.toUpperCase()}`, 12, 22)
+      ctx.fillText(`VIEWPORT YAW: ${targetAngle.toUpperCase()} (${Math.round((yaw * 180) / Math.PI)}°)`, 12, 22)
 
-      // Ground plane reference
+      // Ground plane grid line
+      const groundY = cy + 40 * u
       ctx.beginPath()
-      ctx.moveTo(W * 0.15, ground + 2)
-      ctx.lineTo(W * 0.85, ground + 2)
+      ctx.moveTo(W * 0.15, groundY)
+      ctx.lineTo(W * 0.85, groundY)
       ctx.strokeStyle = 'rgba(255,77,0,0.3)'
       ctx.lineWidth = 2
       ctx.setLineDash([6, 6])
@@ -218,4 +245,5 @@ export default function PoseCanvas({ exercise, angle = 'Side', severity, active 
 
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
 }
+
 
