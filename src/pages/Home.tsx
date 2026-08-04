@@ -30,41 +30,41 @@ const rise = {
 const FEATURES = [
   {
     icon: ScanFace,
-    title: 'Exercise recognition',
-    body: 'The model watches your movement and classifies the lift — squat, deadlift, bench, press, curl, lunge. No manual logging, no setup.',
+    title: 'Exercise & AI Camera Setup',
+    body: 'Select your movement — Squat, Deadlift, Bench, Press, Curl, or Lunge. The AI instantly recommends the optimal camera angle and distance guidance.',
   },
   {
     icon: Move3d,
-    title: 'Any camera angle',
-    body: 'Front, side, three-quarter or rear — detection figures out the viewpoint and tracks the joints that matter for that lift.',
+    title: 'Biomechanical 3D Tracking',
+    body: 'Continuous 12-joint skeleton posture estimation aligned to the camera viewpoint angle (Side, Front, Three-Quarter, Rear).',
   },
   {
     icon: Gauge,
-    title: 'Live form assessment',
-    body: 'Joint angles scored rep by rep. Knee valgus, lumbar rounding, elbow flare — the cue lands the moment the rep does.',
+    title: 'Velocity & Form Analytics',
+    body: 'Rep-by-rep concentric and eccentric duration split, joint Range of Motion angles, and real-time angular speed (deg/s) telemetry.',
   },
   {
     icon: Flame,
-    title: 'Effort detection',
-    body: 'Rep count, rep-speed decay and facial strain fused into one 0–100 score. You finally know when a set is truly done.',
+    title: 'Effort & Strain Engine',
+    body: 'Rep count, rep-velocity decay and form degradation fused into one 0–100 effort score to pinpoint true set completion.',
   },
 ]
 
 const STEPS = [
   {
     icon: Camera,
-    title: 'Point a camera',
-    body: 'Prop your phone against a water bottle or upload an old clip. Any angle works.',
+    title: '1. Select Exercise',
+    body: 'Pick your exercise and follow the AI placement guidance for distance and framing.',
   },
   {
     icon: Zap,
-    title: 'Just lift',
-    body: 'The AI names the exercise, counts your reps and grades every single one while you move.',
+    title: '2. Start Lifting',
+    body: 'Run live camera or demo mode. The AI tracks joint angles, rep velocity, and form severity in real time.',
   },
   {
     icon: Gauge,
-    title: 'Get coached',
-    body: 'Cues mid-set, an effort score that tells you when to stop, and a full breakdown at the end.',
+    title: '3. Review Telemetry',
+    body: 'Inspect rep-by-rep summary tables, velocity decay graphs, flaw tags, and coach feedback.',
   },
 ]
 
@@ -357,15 +357,14 @@ export default function Home() {
               <span className="font-serifit normal-case italic text-primary">score.</span>
             </h2>
             <p className="mt-4 max-w-md text-muted-foreground">
-              This is the actual fusion logic from the demo engine. Drag the inputs — watch how
-              grinding reps, slowing tempo and a strained face stack into one number.
+              This is the actual effort fusion logic from the telemetry engine. Adjust the variables below to see how rep count, velocity decay, and form degradation combine into a live Effort Score.
             </p>
 
             <div className="mt-10 space-y-8">
               {[
                 { label: 'REPS INTO THE SET', value: reps, set: setReps, min: 1, max: 12, fmt: (v: number) => `${v} REPS` },
-                { label: 'REP SPEED DECAY', value: slow, set: setSlow, min: 0, max: 40, fmt: (v: number) => `−${v}%` },
-                { label: 'FACIAL STRAIN', value: strain, set: setStrain, min: 0, max: 100, fmt: (v: number) => `${v}%` },
+                { label: 'REP VELOCITY DECAY', value: slow, set: setSlow, min: 0, max: 40, fmt: (v: number) => `−${v}%` },
+                { label: 'FORM DEGRADATION STRAIN', value: strain, set: setStrain, min: 0, max: 100, fmt: (v: number) => `${v}%` },
               ].map((s) => (
                 <div key={s.label}>
                   <div className="mb-2 flex items-center justify-between">
