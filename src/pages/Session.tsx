@@ -8,6 +8,7 @@ import {
   CircleStop,
   Flame,
   MessagesSquare,
+  PersonStanding,
   ScanFace,
   Timer,
   TriangleAlert,
@@ -42,6 +43,7 @@ import {
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
+import MuscleMap, { riskForCue, type MuscleRisk } from '@/components/MuscleMap'
 import {
   EXERCISES,
   angleForExercise,
@@ -87,6 +89,7 @@ export default function Session() {
   const clockRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
+  const forceCritRef = useRef(false)
 
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
@@ -118,6 +121,13 @@ export default function Session() {
       const delay = prev ? prev.tempo * 1000 : ex.baseTempo * 1000
       repTimerRef.current = window.setTimeout(() => {
         const rep = simulateRep(nextIndex, ex)
+        // demo hook: ?alert=1 forces the first rep to be a critical form break
+        if (forceCritRef.current) {
+          forceCritRef.current = false
+          rep.severity = 'crit'
+          rep.cue = ex.cues.crit[0]
+          rep.formScore = Math.min(rep.formScore, 52)
+        }
         repsRef.current = [...repsRef.current, rep]
         setReps(repsRef.current)
         pushFeed(rep.cue, rep.severity)
@@ -183,11 +193,15 @@ export default function Session() {
   }
 
   // /session?demo=1 jumps straight into a simulated set (handy for hackathon judging)
+  // /session?demo=1&alert=1 also forces a critical form break on the first rep,
+  // so the muscle-map "strain risk" state can be demoed on demand
   const autoDemoRef = useRef(false)
   useEffect(() => {
     if (autoDemoRef.current) return
-    if (new URLSearchParams(window.location.search).get('demo') === '1') {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('demo') === '1') {
       autoDemoRef.current = true
+      if (params.get('alert') === '1') forceCritRef.current = true
       startDemo()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,6 +240,7 @@ export default function Session() {
     setElapsed(0)
     setSummaryOpen(false)
     setTab('coach')
+    setRiskHold(null)
   }
 
   const latest = reps[reps.length - 1]
@@ -234,6 +249,24 @@ export default function Session() {
   const zone = zoneFor(effort)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
+
+  // latest bad rep → which structure is taking the damage (drives the muscle map zoom).
+  // held for a few seconds so the alert doesn't vanish on the very next rep
+  const [riskHold, setRiskHold] = useState<{ risk: MuscleRisk; until: number } | null>(null)
+  useEffect(() => {
+    if (phase === 'live' && latest && latest.severity !== 'good') {
+      setRiskHold({ risk: riskForCue(latest.cue, exercise), until: Date.now() + 5000 })
+    }
+  }, [phase, latest, exercise])
+  useEffect(() => {
+    if (!riskHold) return
+    const t = window.setTimeout(
+      () => setRiskHold(null),
+      Math.max(0, riskHold.until - Date.now()),
+    )
+    return () => window.clearTimeout(t)
+  }, [riskHold])
+  const muscleRisk = riskHold?.risk ?? null
 
   const statTiles = [
     { label: 'REPS', value: reps.length, key: reps.length, accent: true },
@@ -452,15 +485,34 @@ export default function Session() {
               )}
             </div>
 
-            {/* desktop chart */}
-            <div className="hard-shadow-sm mt-6 hidden border-2 border-foreground bg-card lg:block">
-              <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
-                <Activity className="h-4 w-4 text-primary" />
-                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
-                  REP TEMPO × FORM SCORE
-                </span>
+            {/* desktop chart + muscle map */}
+            <div className="mt-6 hidden grid-cols-5 gap-5 lg:grid">
+              <div className="hard-shadow-sm col-span-3 border-2 border-foreground bg-card">
+                <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
+                  <Activity className="h-4 w-4 text-primary" />
+                  <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
+                    REP TEMPO × FORM SCORE
+                  </span>
+                </div>
+                {chartEl}
               </div>
-              {chartEl}
+              <div
+                className={`hard-shadow-sm col-span-2 border-2 bg-card transition-colors ${
+                  muscleRisk ? 'border-red-600' : 'border-foreground'
+                }`}
+              >
+                <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2.5">
+                  <span className="mono-data flex items-center gap-2 text-[10px] font-semibold tracking-[0.25em]">
+                    <PersonStanding className="h-4 w-4 text-primary" /> MUSCLE MAP
+                  </span>
+                  {muscleRisk && (
+                    <span className="mono-data text-[9px] font-bold tracking-[0.2em] text-red-600">
+                      ⚠ FORM ALERT
+                    </span>
+                  )}
+                </div>
+                <MuscleMap exercise={exercise} risk={muscleRisk} />
+              </div>
             </div>
           </div>
 
@@ -555,6 +607,25 @@ export default function Session() {
                   )}
                 </AnimatePresence>
               </div>
+            </div>
+
+            {/* muscle map — what you're training / what you're damaging */}
+            <div
+              className={`hard-shadow-sm border-2 bg-card transition-colors ${
+                muscleRisk ? 'border-red-600' : 'border-foreground'
+              }`}
+            >
+              <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2">
+                <span className="mono-data flex items-center gap-2 text-[10px] font-semibold tracking-[0.25em]">
+                  <PersonStanding className="h-4 w-4 text-primary" /> MUSCLE MAP
+                </span>
+                {muscleRisk && (
+                  <span className="mono-data text-[9px] font-bold tracking-[0.2em] text-red-600">
+                    ⚠ FORM ALERT
+                  </span>
+                )}
+              </div>
+              <MuscleMap exercise={exercise} risk={muscleRisk} />
             </div>
 
             {/* tabs: coaching / chart */}
@@ -760,6 +831,26 @@ export default function Session() {
                 <p className="mono-data mt-1 text-[8px] tracking-[0.25em] text-muted-foreground">{s.label}</p>
               </motion.div>
             ))}
+          </div>
+          <div className="flex items-center gap-4 border-2 border-foreground bg-background p-3">
+            <div className="w-24 shrink-0">
+              <MuscleMap exercise={exercise} risk={null} compact />
+            </div>
+            <div className="min-w-0">
+              <p className="mono-data text-[9px] tracking-[0.25em] text-muted-foreground">
+                WHAT YOU TRAINED
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {exercise?.primaryMuscles.map((m) => (
+                  <span
+                    key={m}
+                    className="mono-data border-2 border-foreground bg-primary px-2 py-0.5 text-[9px] font-semibold tracking-widest text-primary-foreground"
+                  >
+                    {m.toUpperCase()}
+                  </span>
+                )) ?? <span className="mono-data text-[10px] text-muted-foreground">—</span>}
+              </div>
+            </div>
           </div>
           <div className="border-2 border-foreground bg-primary/10 p-4">
             <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
