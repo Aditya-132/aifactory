@@ -125,12 +125,11 @@ export default function Session() {
   )
 
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>(EXERCISES[0].id)
-  const [selectedCameraAngle, setSelectedCameraAngle] = useState<CameraAngle>('Side')
 
   const beginAnalysis = useCallback(
     () => {
       const chosenEx = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
-      const chosenAngle = selectedCameraAngle || angleForExercise(chosenEx)
+      const chosenAngle = chosenEx.recommendation.recommendedCamera
       setExercise(chosenEx)
       setAngle(chosenAngle)
 
@@ -373,43 +372,51 @@ export default function Session() {
                     </p>
                   </div>
 
-                  {/* Pre-workout configuration selectors */}
-                  <div className="w-full max-w-xs space-y-3 border-2 border-foreground bg-card p-3 hard-shadow-sm text-left">
-                    <div>
-                      <label className="mono-data block text-[10px] font-bold tracking-wider text-foreground mb-1">
-                        1. SELECT EXERCISE
-                      </label>
-                      <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
-                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-2 font-mono text-xs">
-                          {EXERCISES.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {e.name} ({e.primaryMuscles[0]})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  {/* AI Camera Recommendation Card */}
+                  {(() => {
+                    const currentEx = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
+                    const rec = currentEx.recommendation
+                    return (
+                      <div className="w-full max-w-sm space-y-3 border-2 border-foreground bg-card p-4 hard-shadow-sm text-left">
+                        <div>
+                          <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
+                            1. SELECT EXERCISE
+                          </label>
+                          <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
+                            <SelectTrigger className="h-10 w-full border-2 font-mono text-xs font-semibold bg-background">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="border-2 font-mono text-xs">
+                              {EXERCISES.map((e) => (
+                                <SelectItem key={e.id} value={e.id}>
+                                  {e.name} ({e.primaryMuscles[0]})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                    <div>
-                      <label className="mono-data block text-[10px] font-bold tracking-wider text-foreground mb-1">
-                        2. SELECT CAMERA ANGLE
-                      </label>
-                      <Select value={selectedCameraAngle} onValueChange={(val) => setSelectedCameraAngle(val as CameraAngle)}>
-                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-2 font-mono text-xs">
-                          <SelectItem value="Side">Side View (Squat / Deadlift)</SelectItem>
-                          <SelectItem value="Front">Front View (OHP / Curl)</SelectItem>
-                          <SelectItem value="Three-quarter">Three-Quarter View (Bench)</SelectItem>
-                          <SelectItem value="Rear">Rear View</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                        {/* AI Camera Guidance Box */}
+                        <div className="border-2 border-foreground/20 bg-background p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="mono-data text-[10px] font-bold tracking-wider text-primary flex items-center gap-1.5">
+                              <Camera className="h-3.5 w-3.5" /> AI RECOMMENDED PLACEMENT
+                            </span>
+                            <span className="mono-data border border-foreground bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                              {rec.recommendedCamera.toUpperCase()} VIEW
+                            </span>
+                          </div>
+                          <p className="text-xs font-semibold text-foreground">
+                            Position your camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approximately <span className="font-bold">{rec.recommendedDistance}</span> away.
+                          </p>
+                          <div className="text-[10px] text-muted-foreground space-y-1 font-mono">
+                            <p>🎯 <strong>Framing:</strong> {rec.framingGuidance}</p>
+                            <p>💡 <strong>Note:</strong> {rec.setupNotes}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   <div className="flex w-full max-w-xs flex-col gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <Button

@@ -1,4 +1,9 @@
-export type CameraAngle = 'Front' | 'Side' | 'Three-quarter' | 'Rear'
+export interface CameraRecommendation {
+  recommendedCamera: CameraAngle
+  recommendedDistance: string
+  framingGuidance: string
+  setupNotes: string
+}
 
 export interface ExerciseDef {
   id: string
@@ -8,6 +13,7 @@ export interface ExerciseDef {
   keyJoint: string
   cues: { good: string[]; warn: string[]; crit: string[] }
   baseTempo: number // seconds per rep
+  recommendation: CameraRecommendation
 }
 
 export const EXERCISES: ExerciseDef[] = [
@@ -23,6 +29,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Knee valgus detected — push knees out', 'Lumbar rounding at depth — brace harder', 'Shallow rep — hit full depth'],
     },
     baseTempo: 2.6,
+    recommendation: {
+      recommendedCamera: 'Side',
+      recommendedDistance: '2.5–3.0 meters',
+      framingGuidance: 'Keep full body & bar path visible in portrait frame.',
+      setupNotes: 'Position camera at waist height to accurately capture knee depth and hip hinge.',
+    },
   },
   {
     id: 'deadlift',
@@ -36,6 +48,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Spinal flexion under load — reset your brace', 'Jerking the bar — create slack tension first', 'Lockout soft — squeeze glutes at the top'],
     },
     baseTempo: 3.1,
+    recommendation: {
+      recommendedCamera: 'Side',
+      recommendedDistance: '2.5–3.0 meters',
+      framingGuidance: 'Ensure head-to-toe coverage & shin path.',
+      setupNotes: 'Side profile is essential to detect spine curvature and bar drift off the shins.',
+    },
   },
   {
     id: 'bench',
@@ -49,6 +67,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Bouncing the bar off the chest — pause it', 'Wrists bent back — stack them', 'Uneven press — left side lagging'],
     },
     baseTempo: 2.4,
+    recommendation: {
+      recommendedCamera: 'Three-quarter',
+      recommendedDistance: '2.0–2.5 meters',
+      framingGuidance: 'Frame bench from head to hip angle.',
+      setupNotes: '45° diagonal perspective captures both bar touchpoint and elbow flare angles.',
+    },
   },
   {
     id: 'ohp',
@@ -62,6 +86,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Excessive lean-back — reduce the load', 'Pressing around your head — tuck chin first', 'One arm locking out early'],
     },
     baseTempo: 2.8,
+    recommendation: {
+      recommendedCamera: 'Front',
+      recommendedDistance: '2.0–2.5 meters',
+      framingGuidance: 'Ensure full lockout clearance overhead.',
+      setupNotes: 'Front view tracks shoulder symmetry, elbow stack, and head position at lockout.',
+    },
   },
   {
     id: 'curl',
@@ -75,6 +105,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Swinging the weight — drop the ego', 'Shoulders doing the work — isolate', 'Momentum rep detected'],
     },
     baseTempo: 2.0,
+    recommendation: {
+      recommendedCamera: 'Front',
+      recommendedDistance: '1.8–2.2 meters',
+      framingGuidance: 'Keep chest & arms centered in frame.',
+      setupNotes: 'Front view detects elbow flare, shoulder compensation, and torso sway.',
+    },
   },
   {
     id: 'lunge',
@@ -88,6 +124,12 @@ export const EXERCISES: ExerciseDef[] = [
       crit: ['Knee collapsing inward on the step', 'Losing balance — slow the cadence', 'Back knee slamming the floor'],
     },
     baseTempo: 2.2,
+    recommendation: {
+      recommendedCamera: 'Side',
+      recommendedDistance: '2.5–3.2 meters',
+      framingGuidance: 'Frame stride path from side profile.',
+      setupNotes: 'Side profile tracks 90° knee split angle and torso posture through step progression.',
+    },
   },
 ]
 
