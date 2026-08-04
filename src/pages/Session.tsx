@@ -416,9 +416,10 @@ export default function Session() {
                               severity="good"
                               active={true}
                             />
-                            <div className="absolute bottom-2 left-2 rounded border border-foreground bg-background/90 px-2 py-0.5 text-[9px] font-bold mono-data">
-                              PREVIEW: {rec.recommendedCamera.toUpperCase()} PERSPECTIVE
-                            </div>
+                          </div>
+
+                          <div className="mono-data text-[9px] font-bold text-muted-foreground tracking-wider">
+                            PREVIEW: <span className="text-foreground">{rec.recommendedCamera.toUpperCase()} PERSPECTIVE</span>
                           </div>
 
                           <p className="text-xs font-semibold text-foreground">
