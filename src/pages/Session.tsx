@@ -45,6 +45,7 @@ import EffortDial, { zoneFor } from '@/components/EffortDial'
 import {
   EXERCISES,
   angleForExercise,
+  nextAngle,
   simulateRep,
   type CameraAngle,
   type ExerciseDef,
@@ -87,6 +88,7 @@ export default function Session() {
   const clockRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
+  const angleRef = useRef<CameraAngle | null>(null)
 
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
@@ -124,6 +126,16 @@ export default function Session() {
         if (rep.effort >= 85) {
           pushFeed(`Effort at ${rep.effort}% — facial strain & bar speed say you're grinding`, 'info')
         }
+        // the model re-locks onto a new camera angle every few reps —
+        // shows off multi-angle tracking as the lifter (or phone) moves
+        if (nextIndex > 1 && (nextIndex - 1) % 3 === 0) {
+          const next = nextAngle(ex, angleRef.current)
+          if (next !== angleRef.current) {
+            angleRef.current = next
+            setAngle(next)
+            pushFeed(`Camera angle switched — tracking re-locked (${next} view)`, 'info')
+          }
+        }
         scheduleNextRep(ex)
       }, delay)
     },
@@ -137,7 +149,9 @@ export default function Session() {
       pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
       window.setTimeout(() => {
         setExercise(ex)
-        setAngle(angleForExercise(ex))
+        const a = angleForExercise(ex)
+        angleRef.current = a
+        setAngle(a)
         setConfidence(88 + Math.floor(Math.random() * 10))
         setPhase('live')
         pushFeed(
@@ -198,7 +212,9 @@ export default function Session() {
     if (!ex) return
     clearTimers()
     setExercise(ex)
-    setAngle(angleForExercise(ex))
+    const a = angleForExercise(ex)
+    angleRef.current = a
+    setAngle(a)
     setConfidence(91 + Math.floor(Math.random() * 7))
     pushFeed(`Exercise corrected to ${ex.name} — recalibrating tracking`, 'info')
     clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
@@ -216,6 +232,7 @@ export default function Session() {
     clearTimers()
     stopCamera()
     repsRef.current = []
+    angleRef.current = null
     setPhase('setup')
     setSource(null)
     setVideoUrl(null)
