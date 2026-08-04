@@ -410,8 +410,8 @@ export default function Session() {
                             Position your camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approximately <span className="font-bold">{rec.recommendedDistance}</span> away.
                           </p>
                           <div className="text-[10px] text-muted-foreground space-y-1 font-mono">
-                            <p>🎯 <strong>Framing:</strong> {rec.framingGuidance}</p>
-                            <p>💡 <strong>Note:</strong> {rec.setupNotes}</p>
+                            <p><strong>Framing:</strong> {rec.framingGuidance}</p>
+                            <p><strong>Note:</strong> {rec.setupNotes}</p>
                           </div>
                         </div>
                       </div>
