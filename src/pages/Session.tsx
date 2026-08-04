@@ -147,7 +147,7 @@ export default function Session() {
         scheduleNextRep(chosenEx)
       }, 2400)
     },
-    [selectedExerciseId, selectedCameraAngle, pushFeed, scheduleNextRep],
+    [selectedExerciseId, pushFeed, scheduleNextRep],
   )
 
   const startCamera = async () => {
