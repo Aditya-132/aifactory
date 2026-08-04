@@ -180,33 +180,6 @@
   .blink-rec {
     animation: blink-rec 1.1s steps(1) infinite;
   }
-
-  /* muscle map: focused muscle breathes, at-risk structure hard-blinks */
-  @keyframes muscle-pulse {
-    0%,
-    100% {
-      opacity: 0.55;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-  .muscle-focus {
-    animation: muscle-pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes risk-blink {
-    0%,
-    49% {
-      opacity: 1;
-    }
-    50%,
-    100% {
-      opacity: 0.35;
-    }
-  }
-  .muscle-risk {
-    animation: risk-blink 0.85s steps(1) infinite;
-  }
 }
 
 ::-webkit-scrollbar {
