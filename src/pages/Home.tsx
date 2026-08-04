@@ -357,7 +357,7 @@ export default function Home() {
               <span className="font-serifit normal-case italic text-primary">score.</span>
             </h2>
             <p className="mt-4 max-w-md text-muted-foreground">
-              Explore how our AI combines workout signals into a single performance score. Adjust the inputs below to see how fatigue, velocity decay, and workout progression influence the analysis.
+              This is the actual effort fusion logic from the telemetry engine. Adjust the variables below to see how rep count, velocity decay, and form degradation combine into a live Effort Score.
             </p>
 
             <div className="mt-10 space-y-8">
