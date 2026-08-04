@@ -361,14 +361,14 @@ export default function Session() {
 
               {/* setup overlay */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-5 bg-background p-6 text-center z-10 overflow-y-auto">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-5 bg-background/85 p-6 text-center z-10 overflow-y-auto backdrop-blur-sm">
                   <div>
                     <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
                     <h1 className="mt-1 text-2xl sm:text-3xl font-bold uppercase tracking-tight">
                       Configure your <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
                     <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-                      Select your exercise movement and camera angle before pressing start.
+                      Select your exercise movement to see the AI camera placement guidance and preview animation.
                     </p>
                   </div>
 
@@ -380,7 +380,7 @@ export default function Session() {
                       <div className="w-full max-w-sm space-y-3 border-2 border-foreground bg-card p-4 hard-shadow-sm text-left">
                         <div>
                           <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
-                            1. SELECT EXERCISE
+                            SELECT EXERCISE
                           </label>
                           <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
                             <SelectTrigger className="h-10 w-full border-2 font-mono text-xs font-semibold bg-background">
@@ -464,7 +464,7 @@ export default function Session() {
 
               {/* analyzing overlay */}
               {phase === 'analyzing' && (
-                <div className="absolute inset-0">
+                <div className="absolute inset-0 z-10">
                   <div className="scanline" />
                   <div className="absolute inset-x-0 bottom-6 flex justify-center">
                     <motion.span
@@ -478,8 +478,13 @@ export default function Session() {
                 </div>
               )}
 
-              {/* pose overlay */}
-              <PoseCanvas exercise={exercise} angle={angle} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
+              {/* pose overlay: active in live phase or setup preview */}
+              <PoseCanvas
+                exercise={phase === 'setup' ? EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0] : exercise}
+                angle={phase === 'setup' ? (EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]).recommendation.recommendedCamera : angle}
+                severity={latest?.severity ?? 'good'}
+                active={phase === 'live' || phase === 'setup'}
+              />
 
               {/* ended phase banner overlay if summary modal is closed */}
               {phase === 'ended' && !summaryOpen && (
