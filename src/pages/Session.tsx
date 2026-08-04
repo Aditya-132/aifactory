@@ -438,7 +438,7 @@ export default function Session() {
               )}
 
               {/* pose overlay */}
-              <PoseCanvas exercise={exercise} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
+              <PoseCanvas exercise={exercise} angle={angle} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
 
               {/* ended phase banner overlay if summary modal is closed */}
               {phase === 'ended' && !summaryOpen && (
