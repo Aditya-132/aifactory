@@ -308,12 +308,33 @@ export default function Session() {
               SIMULATED ANALYSIS
             </span>
           </div>
-          {/* desktop-only: REC + END SET + Settings */}
-          <div className="hidden items-center gap-3 lg:flex">
+          {/* top bar action items: Settings, Reopen Summary, End Set, New Set */}
+          <div className="flex items-center gap-2">
             <SettingsModal />
+
+            {phase === 'ended' && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSummaryOpen(true)}
+                  className="hard-shadow-sm border-2 border-foreground bg-primary font-bold text-primary-foreground transition-transform hover:-translate-y-0.5"
+                >
+                  <Activity className="mr-1.5 h-3.5 w-3.5" /> SUMMARY
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={reset}
+                  className="hard-shadow-sm border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5"
+                >
+                  NEW SET
+                </Button>
+              </>
+            )}
+
             {phase === 'live' && (
               <>
-                <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
+                <span className="mono-data hidden items-center gap-2 text-xs font-semibold tracking-[0.2em] sm:flex">
                   <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
                   REC {mm}:{ss}
                 </span>
@@ -418,6 +439,38 @@ export default function Session() {
 
               {/* pose overlay */}
               <PoseCanvas exercise={exercise} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
+
+              {/* ended phase banner overlay if summary modal is closed */}
+              {phase === 'ended' && !summaryOpen && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/90 p-6 text-center backdrop-blur-sm z-20">
+                  <div className="hard-shadow max-w-sm border-2 border-foreground bg-card p-6 space-y-4">
+                    <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">SET COMPLETE</p>
+                    <h2 className="text-xl font-bold uppercase">
+                      {exercise?.name} — {reps.length} Reps
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      Session data saved. Re-open the telemetry breakdown or start a new set.
+                    </p>
+                    <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                      <Button
+                        size="sm"
+                        onClick={() => setSummaryOpen(true)}
+                        className="hard-shadow-sm flex-1 border-2 border-foreground bg-primary font-bold text-primary-foreground"
+                      >
+                        <Activity className="mr-1.5 h-3.5 w-3.5" /> VIEW SUMMARY
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={reset}
+                        className="hard-shadow-sm flex-1 border-2 border-foreground bg-background font-bold"
+                      >
+                        NEW SET
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* viewfinder furniture */}
               {phase === 'live' && (
