@@ -15,6 +15,7 @@ import {
   Video,
   WifiOff,
   Zap,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -575,7 +576,7 @@ export default function Session() {
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
           {/* Video panel */}
           <div className="lg:col-span-2">
-            <div className="hard-shadow relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-foreground sm:aspect-video">
+            <div className={`hard-shadow relative border-2 border-foreground bg-foreground ${phase === 'setup' ? 'min-h-[520px]' : 'aspect-[4/5] sm:aspect-video'}`}>
               {realTrackingMode && (
                 <video
                   ref={videoRef}
@@ -616,27 +617,24 @@ export default function Session() {
                 </div>
               )}
 
-              {/* Pre-workout Setup Overlay */}
+              {/* Pre-workout Setup Overlay (Completely Visible, Unclipped Buttons) */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background/90 p-5 text-center z-10 overflow-y-auto backdrop-blur-sm">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-between p-4 sm:p-5 text-center z-10 bg-background/95 backdrop-blur-sm">
                   <div>
-                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
-                    <h1 className="mt-1 text-2xl sm:text-3xl font-bold uppercase tracking-tight">
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary font-bold">WORKOUT SETUP</p>
+                    <h1 className="mt-0.5 text-xl sm:text-2xl font-bold uppercase tracking-tight">
                       Configure your <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
-                    <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-                      Select your movement to preview the 3D perspective animation and AI camera placement guidelines.
-                    </p>
                   </div>
 
                   {/* AI Camera Guidance Box & 3D Preview Window */}
-                  <div className="w-full max-w-sm space-y-3 border-2 border-foreground bg-card p-4 hard-shadow-sm text-left">
+                  <div className="w-full max-w-md space-y-2.5 border-2 border-foreground bg-card p-3.5 sm:p-4 hard-shadow-sm text-left">
                     <div>
                       <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
                         SELECT EXERCISE
                       </label>
                       <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
-                        <SelectTrigger className="h-10 w-full border-2 font-mono text-xs font-semibold bg-background">
+                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="border-2 font-mono text-xs">
@@ -649,7 +647,7 @@ export default function Session() {
                       </Select>
                     </div>
 
-                    <div className="border-2 border-foreground/20 bg-background p-3 space-y-2">
+                    <div className="border-2 border-foreground/20 bg-background p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="mono-data text-[10px] font-bold tracking-wider text-primary flex items-center gap-1.5">
                           <Camera className="h-3.5 w-3.5" /> AI RECOMMENDED PLACEMENT
@@ -659,8 +657,8 @@ export default function Session() {
                         </span>
                       </div>
 
-                      {/* Live 3D Pose Canvas Animation Preview Window */}
-                      <div className="relative h-36 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
+                      {/* 3D Pose Canvas Animation Preview Window */}
+                      <div className="relative h-28 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
                         <div className="bg-grid absolute inset-0" />
                         <PoseCanvas
                           exercise={currentExDef}
@@ -674,32 +672,32 @@ export default function Session() {
                         PREVIEW: <span className="text-foreground">{rec.recommendedCamera.toUpperCase()} PERSPECTIVE</span>
                       </div>
 
-                      <p className="text-xs font-semibold text-foreground">
+                      <p className="text-[11px] font-semibold text-foreground">
                         Position camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approx <span className="font-bold">{rec.recommendedDistance}</span> away.
                       </p>
-                      <div className="text-[10px] text-muted-foreground space-y-1 font-mono">
+                      <div className="text-[9px] text-muted-foreground space-y-0.5 font-mono">
                         <p><strong>Framing:</strong> {rec.framingGuidance}</p>
                         <p><strong>Note:</strong> {rec.setupNotes}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex w-full max-w-xs flex-col gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+                  <div className="flex w-full max-w-md flex-col gap-2 sm:flex-row sm:items-center sm:justify-center">
                     <Button
-                      size="lg"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      size="sm"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground text-xs font-bold transition-transform hover:-translate-y-0.5"
                       onClick={startCamera}
                     >
-                      <Camera className="mr-2 h-4 w-4" /> START CAMERA
+                      <Camera className="mr-1.5 h-4 w-4" /> START CAMERA
                     </Button>
                     <Button
-                      size="lg"
+                      size="sm"
                       variant="outline"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground bg-card text-xs font-bold transition-transform hover:-translate-y-0.5"
                       asChild
                     >
                       <label className="cursor-pointer">
-                        <Upload className="mr-2 h-4 w-4" /> UPLOAD VIDEO
+                        <Upload className="mr-1.5 h-4 w-4" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -712,15 +710,31 @@ export default function Session() {
                       </label>
                     </Button>
                     <Button
-                      size="lg"
+                      size="sm"
                       variant="outline"
-                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground bg-foreground text-xs font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground"
                       onClick={startDemo}
                     >
-                      <Zap className="mr-2 h-4 w-4" /> DEMO MODE
+                      <Zap className="mr-1.5 h-4 w-4" /> DEMO MODE
                     </Button>
                   </div>
 
+                  {trackingErrorMessage && (
+                    <div className="flex flex-col gap-1 max-w-sm border-2 border-amber-600 bg-amber-50 p-2 text-left text-[10px] text-amber-950">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <TriangleAlert className="h-3.5 w-3.5 text-amber-600 shrink-0" /> CAMERA DIAGNOSTIC
+                      </div>
+                      <p>{trackingErrorMessage}</p>
+                      <div className="flex gap-2 pt-0.5">
+                        <Button size="sm" variant="outline" className="h-7 border border-amber-800 text-[10px] font-bold" onClick={startCamera}>
+                          <RefreshCw className="mr-1 h-3 w-3" /> RETRY
+                        </Button>
+                        <Button size="sm" className="h-7 border border-amber-800 bg-amber-600 text-white text-[10px] font-bold" onClick={startDemo}>
+                          <Zap className="mr-1 h-3 w-3" /> DEMO MODE
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
