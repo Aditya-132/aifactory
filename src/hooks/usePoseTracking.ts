@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MediaPipePoseEstimator } from '@/lib/pose/mediapipePoseEstimator'
 import {
+  PoseSampleTimeline,
+  type PoseSampleSource,
+  type PoseTrackingSample,
+} from '@/lib/pose/poseSampleTimeline'
+import {
   PoseEstimatorException,
   type PoseEstimatorError,
   type PoseFrame,
@@ -13,6 +18,8 @@ const MIN_INFERENCE_INTERVAL_MS = 1000 / TARGET_INFERENCE_FPS
 interface PoseTrackingOptions {
   active: boolean
   lifecycleKey: string
+  /** When provided, frames are captured into a PoseSampleTimeline for rep-level analysis. */
+  source?: PoseSampleSource | null
   video: HTMLVideoElement | null
 }
 
@@ -23,7 +30,7 @@ interface KeyedStatus {
 
 interface KeyedResult {
   key: string
-  value: PoseFrame | null
+  value: PoseTrackingSample | null
 }
 
 interface KeyedError {
@@ -31,9 +38,16 @@ interface KeyedError {
   value: PoseEstimatorError | null
 }
 
+interface KeyedTimelineRevision {
+  key: string
+  value: number
+}
+
 interface PoseTrackingController {
   status: PoseTrackingStatus
   latestResult: PoseFrame | null
+  latestSample: PoseTrackingSample | null
+  timelineRevision: number
   error: PoseEstimatorError | null
   isTracking: boolean
   retry: () => void
@@ -51,11 +65,13 @@ function unknownInferenceError(): PoseEstimatorError {
 export function usePoseTracking({
   active,
   lifecycleKey,
+  source = null,
   video,
 }: PoseTrackingOptions): PoseTrackingController {
   const [statusState, setStatusState] = useState<KeyedStatus>({ key: '', value: 'idle' })
   const [resultState, setResultState] = useState<KeyedResult>({ key: '', value: null })
   const [errorState, setErrorState] = useState<KeyedError>({ key: '', value: null })
+  const [timelineState, setTimelineState] = useState<KeyedTimelineRevision>({ key: '', value: 0 })
   const [retryVersion, setRetryVersion] = useState(0)
   const generationRef = useRef(0)
   const stopLifecycleRef = useRef<() => void>(() => undefined)
@@ -68,6 +84,7 @@ export function usePoseTracking({
     if (!active || !video) return
 
     const estimator = new MediaPipePoseEstimator()
+    const timeline = new PoseSampleTimeline(lifecycleKey)
     let cancelled = false
     let animationFrame: number | null = null
     let inferencePending = false
@@ -84,6 +101,10 @@ export function usePoseTracking({
           ? current
           : { key: lifecycleKey, value },
       )
+    }
+    const publishTimelineRevision = () => {
+      if (!isCurrent()) return
+      setTimelineState({ key: lifecycleKey, value: timeline.timelineRevision })
     }
     const cancelFrame = () => {
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame)
@@ -136,22 +157,31 @@ export function usePoseTracking({
       lastVideoTime = videoTime
       const timestampMs = Math.max(now, lastEstimatorTimestamp + 0.01)
       lastEstimatorTimestamp = timestampMs
+      const metadata = source ? timeline.capture(source, videoTime, timestampMs) : null
+      if (source && !metadata) {
+        inferencePending = false
+        requestFrame()
+        return
+      }
+      if (metadata) publishTimelineRevision()
       publishStatus('tracking')
 
       void estimator
         .estimate(video, timestampMs)
         .then((result) => {
           if (!isCurrent()) return
-          setResultState((current) => {
-            if (
-              result.poses.length === 0 &&
-              current.key === lifecycleKey &&
-              (!current.value || current.value.poses.length === 0)
-            ) {
-              return current
-            }
-            return { key: lifecycleKey, value: result }
-          })
+          if (metadata && !timeline.isCurrent(metadata.timelineRevision)) return
+          const sample: PoseTrackingSample = metadata
+            ? { ...metadata, frame: result }
+            : {
+                sequence: 0,
+                lifecycleKey,
+                timelineRevision: 0,
+                frame: result,
+                mediaTimeMs: videoTime * 1000,
+                timestampMs,
+              }
+          setResultState({ key: lifecycleKey, value: sample })
           setErrorState((current) =>
             current.key === lifecycleKey && current.value === null
               ? current
@@ -185,6 +215,10 @@ export function usePoseTracking({
     }
 
     const handlePlay = () => {
+      if (source === 'upload' && timeline.markPlay()) {
+        setResultState({ key: lifecycleKey, value: null })
+        publishTimelineRevision()
+      }
       forceNextFrame = true
       publishStatus('ready')
       requestFrame()
@@ -195,9 +229,15 @@ export function usePoseTracking({
     }
     const handleEnded = () => {
       cancelFrame()
+      if (source === 'upload') timeline.markEnded()
       publishStatus('ended')
     }
     const handleSeeked = () => {
+      if (source === 'upload') {
+        timeline.markSeeked(video.currentTime)
+        setResultState({ key: lifecycleKey, value: null })
+        publishTimelineRevision()
+      }
       forceNextFrame = true
       requestFrame()
     }
@@ -237,6 +277,7 @@ export function usePoseTracking({
       setStatusState({ key: lifecycleKey, value: 'loading' })
       setResultState({ key: lifecycleKey, value: null })
       setErrorState({ key: lifecycleKey, value: null })
+      setTimelineState({ key: lifecycleKey, value: 0 })
       try {
         await estimator.initialize()
         if (!isCurrent()) return
@@ -257,16 +298,20 @@ export function usePoseTracking({
         stopLifecycleRef.current = () => undefined
       }
     }
-  }, [active, lifecycleKey, retryVersion, video])
+  }, [active, lifecycleKey, retryVersion, source, video])
 
   const status =
     active && statusState.key === lifecycleKey ? statusState.value : active ? 'loading' : 'idle'
-  const latestResult = resultState.key === lifecycleKey ? resultState.value : null
+  const latestSample = resultState.key === lifecycleKey ? resultState.value : null
+  const latestResult = latestSample?.frame ?? null
   const error = errorState.key === lifecycleKey ? errorState.value : null
+  const timelineRevision = timelineState.key === lifecycleKey ? timelineState.value : 0
 
   return {
     status,
     latestResult,
+    latestSample,
+    timelineRevision,
     error,
     isTracking: status === 'tracking' || status === 'no-pose',
     retry,
