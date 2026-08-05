@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildRepAnalysis,
   computeEffortIndex,
   computeFacialColorShift,
   computeJointAngle,
@@ -73,6 +74,24 @@ describe('biomechanics_v2 utilities', () => {
     )
 
     expect(shift).toBe(0)
+  })
+
+  it('derives a live rep score from joint angles and effort inputs', () => {
+    const result = buildRepAnalysis({
+      exerciseId: 'squat',
+      mode: 'Moderate',
+      knee_angle: 90,
+      hip_angle: 100,
+      back_angle: 35,
+      speedDecayPct: 44,
+      facialColorShiftPct: 36,
+      formScore: 80,
+    })
+
+    expect(result.formResult.status).toContain('PERFECT DEPTH')
+    expect(result.formScore).toBeGreaterThan(70)
+    expect(result.effortResult.level).toBe('MODERATE')
+    expect(result.severity).toBe('warn')
   })
 
   it('maps effort indexes to the right band', () => {
