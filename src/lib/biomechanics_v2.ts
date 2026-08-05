@@ -1,4 +1,5 @@
 export type FormToleranceMode = 'Strict' | 'Moderate' | 'Lenient'
+export type FormSensitivityMode = 'Strict' | 'Standard' | 'Lenient'
 
 export type ExerciseId = 'squat' | 'deadlift' | 'bench' | 'ohp' | 'curl' | 'lunge'
 
@@ -40,6 +41,11 @@ const TOLERANCE_TABLE: Record<FormToleranceMode, { knee: number; hip: number; ba
   Strict: { knee: 8, hip: 10, back: 8 },
   Moderate: { knee: 12, hip: 15, back: 12 },
   Lenient: { knee: 16, hip: 20, back: 16 },
+}
+
+export function normalizeFormToleranceMode(mode: FormSensitivityMode | FormToleranceMode): FormToleranceMode {
+  if (mode === 'Standard') return 'Moderate'
+  return mode === 'Strict' || mode === 'Moderate' || mode === 'Lenient' ? mode : 'Moderate'
 }
 
 export const EXERCISE_ANGLE_TARGETS: Record<ExerciseId, ExerciseBiomechanicsTargets> = {
