@@ -36,7 +36,8 @@ import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { useMediaSource, type MediaSourceKind } from '@/hooks/useMediaSource'
 import { usePoseTracking } from '@/hooks/usePoseTracking'
-import { useRepAnalysis } from '@/hooks/useRepAnalysis'
+import { useRepAnalysis, type RepAnalysisSample } from '@/hooks/useRepAnalysis'
+import { usePoseTelemetry } from '@/hooks/usePoseTelemetry'
 import VelocityAngleChart from '@/components/VelocityAngleChart'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
 import SettingsModal from '@/components/SettingsModal'
@@ -118,6 +119,7 @@ export default function Session() {
   const poseTracking = usePoseTracking({
     active: poseTrackingEnabled,
     lifecycleKey: mediaLifecycleKey,
+    source: mediaSource,
     video: videoElement,
   })
   const stopPoseTracking = poseTracking.stop
@@ -152,13 +154,44 @@ export default function Session() {
     [pushFeed],
   )
 
-  const { isCalibrated } = useRepAnalysis({
+  const poseTelemetry = usePoseTelemetry({
+    active: poseTrackingEnabled,
+    lifecycleKey: mediaLifecycleKey,
+  })
+  const handleAnalyzedSample = useCallback(
+    ({ sample, classification, phase: repPhase, repCount, completedRep }: RepAnalysisSample) => {
+      if (mediaSource !== 'camera' && mediaSource !== 'upload') return
+      const pose = sample.frame.poses[0]
+      if (!pose) return
+      poseTelemetry.publish({
+        timestampMs: sample.mediaTimeMs,
+        source: mediaSource,
+        exercise: classification,
+        phase: repPhase,
+        repCount,
+        completedRep: completedRep
+          ? {
+              index: completedRep.rep,
+              totalDurationSeconds: completedRep.tempo,
+              eccentricDurationSeconds: completedRep.eccentricTime,
+              concentricDurationSeconds: completedRep.concentricTime,
+              peakAngleDegrees: completedRep.peakAngle,
+              angularVelocityDegreesPerSecond: completedRep.velocity,
+            }
+          : null,
+        landmarks: pose.landmarks,
+      })
+    },
+    [mediaSource, poseTelemetry.publish],
+  )
+  const { isCalibrated, classification: detectedExercise } = useRepAnalysis({
     active: poseTrackingEnabled && exercise !== null,
     exercise,
     lifecycleKey: mediaLifecycleKey,
-    frame: poseTracking.latestResult,
+    sample: poseTracking.latestSample,
     videoSize,
     onRep: handleTrackedRep,
+    onSample: handleAnalyzedSample,
   })
 
   // A tracked set has no scripted timeline, so its clock follows live inference.
@@ -287,10 +320,7 @@ export default function Session() {
     setSummaryOpen(false)
   }, [clearTimers])
 
-  /**
-   * Locks in what a tracked set is scored against. There is no movement classifier
-   * yet, so the exercise picked during setup stands in for one.
-   */
+  /** Locks in what a tracked set is scored against; detection never changes this choice. */
   const prepareTrackedSet = useCallback(() => {
     const ex = EXERCISES.find((e) => e.id === selectedExerciseId) ?? EXERCISES[0]
     setExercise(ex)
@@ -405,8 +435,10 @@ export default function Session() {
   /** True whenever reps are being scored, whether simulated or tracked from video. */
   const setInProgress = phase === 'live' || (realTrackingMode && phase === 'media')
   const analysisLive = setInProgress || phase === 'ended'
-  // Tracked sets have no movement classifier, so the lift is whatever setup picked.
+  // The setup selection remains authoritative; heuristic detection is informational only.
   const detectionBadge = realTrackingMode ? 'MANUAL' : `${confidence}%`
+  const detectedExerciseLabel = detectedExercise.label.replace('_', ' ')
+  const detectedExerciseConfidence = Math.round(detectedExercise.confidence * 100)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
 
@@ -923,6 +955,11 @@ export default function Session() {
                         </span>
                       </div>
                       <div className="pt-2">
+                        {realTrackingMode && (
+                          <p className="mono-data mb-1 text-[9px] tracking-[0.18em] text-muted-foreground">
+                            DETECTED EXERCISE: {detectedExerciseLabel} ({detectedExerciseConfidence}%)
+                          </p>
+                        )}
                         <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
                           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
                         </p>
@@ -1003,6 +1040,11 @@ export default function Session() {
                         ))}
                       </div>
                       <div className="pt-2">
+                        {realTrackingMode && (
+                          <p className="mono-data mb-1 text-[9px] tracking-[0.18em] text-muted-foreground">
+                            DETECTED EXERCISE: {detectedExerciseLabel} ({detectedExerciseConfidence}%)
+                          </p>
+                        )}
                         <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
                           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
                         </p>
