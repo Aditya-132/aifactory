@@ -35,6 +35,7 @@ import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { useMediaSource, type MediaSourceKind } from '@/hooks/useMediaSource'
 import { usePoseTracking } from '@/hooks/usePoseTracking'
+import { useRepAnalysis } from '@/hooks/useRepAnalysis'
 import VelocityAngleChart from '@/components/VelocityAngleChart'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
 import SettingsModal from '@/components/SettingsModal'
@@ -133,6 +134,35 @@ export default function Session() {
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
+
+  const handleTrackedRep = useCallback(
+    (rep: RepData) => {
+      repsRef.current = [...repsRef.current, rep]
+      setReps(repsRef.current)
+      pushFeed(rep.cue, rep.severity)
+      audioEngine.playTone(
+        rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep',
+      )
+      audioEngine.speakCue(rep.cue, rep.severity === 'crit')
+    },
+    [pushFeed],
+  )
+
+  const { isCalibrated } = useRepAnalysis({
+    active: poseTrackingEnabled && exercise !== null,
+    exercise,
+    lifecycleKey: mediaLifecycleKey,
+    frame: poseTracking.latestResult,
+    videoSize,
+    onRep: handleTrackedRep,
+  })
+
+  // A tracked set has no scripted timeline, so its clock follows live inference.
+  useEffect(() => {
+    if (!realTrackingMode || poseTracking.status !== 'tracking') return
+    const id = window.setInterval(() => setElapsed((seconds) => seconds + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [realTrackingMode, poseTracking.status])
 
   const clearTimers = useCallback(() => {
     if (repTimerRef.current) window.clearTimeout(repTimerRef.current)
@@ -253,10 +283,23 @@ export default function Session() {
     setSummaryOpen(false)
   }, [clearTimers])
 
+  /**
+   * Locks in what a tracked set is scored against. There is no movement classifier
+   * yet, so the exercise picked during setup stands in for one.
+   */
+  const prepareTrackedSet = useCallback(() => {
+    const ex = EXERCISES.find((e) => e.id === selectedExerciseId) ?? EXERCISES[0]
+    setExercise(ex)
+    const a = angleForExercise(ex)
+    angleRef.current = a
+    setAngle(a)
+  }, [selectedExerciseId])
+
   const startCamera = () => {
     stopPoseTracking()
     clearAnalysisData()
     setDemoActive(false)
+    prepareTrackedSet()
     setPhase('media')
     void openCamera()
   }
@@ -265,6 +308,7 @@ export default function Session() {
     stopPoseTracking()
     clearAnalysisData()
     setDemoActive(false)
+    prepareTrackedSet()
     setPhase('media')
     openUpload(file)
   }
@@ -328,6 +372,11 @@ export default function Session() {
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
   const zone = zoneFor(effort)
+  /** True whenever reps are being scored, whether simulated or tracked from video. */
+  const setInProgress = phase === 'live' || (realTrackingMode && phase === 'media')
+  const analysisLive = setInProgress || phase === 'ended'
+  // Tracked sets have no movement classifier, so the lift is whatever setup picked.
+  const detectionBadge = realTrackingMode ? 'MANUAL' : `${confidence}%`
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
 
@@ -356,7 +405,9 @@ export default function Session() {
   const trackingDescription = trackingErrorMessage
     ? trackingErrorMessage
     : poseTracking.status === 'tracking'
-      ? 'Real browser pose landmarks are being tracked. Fitness metrics begin in Checkpoint 8.'
+      ? isCalibrated
+        ? 'Scoring reps live from browser pose landmarks.'
+        : 'Tracking landmarks — complete one full rep to calibrate your range of motion.'
       : poseTracking.status === 'no-pose'
         ? 'Keep one full person visible in the frame. This is not a fatal tracking error.'
         : mediaStatus === 'paused' || poseTracking.status === 'paused'
@@ -370,30 +421,30 @@ export default function Session() {
   const statTiles = [
     {
       label: 'REPS',
-      value: realTrackingMode ? '—' : reps.length,
-      key: realTrackingMode ? 'unavailable' : reps.length,
-      accent: !realTrackingMode,
+      value: reps.length,
+      key: reps.length,
+      accent: true,
     },
     {
       label: 'S / REP',
-      value: realTrackingMode ? '—' : latest ? latest.tempo.toFixed(1) : '—',
-      key: realTrackingMode ? 'unavailable' : (latest?.tempo ?? 0),
+      value: latest ? latest.tempo.toFixed(1) : '—',
+      key: latest?.tempo ?? 0,
       accent: false,
     },
     {
       label: 'FORM',
-      value: realTrackingMode ? '—' : avgForm || '—',
-      key: realTrackingMode ? 'unavailable' : avgForm,
+      value: avgForm || '—',
+      key: avgForm,
       accent: false,
     },
   ]
 
   const chartEl = (
     <div className="p-3">
-      {realTrackingMode ? (
+      {realTrackingMode && !reps.length ? (
         <div className="flex h-48 items-center justify-center lg:h-64">
           <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            REP ANALYTICS BEGIN IN CHECKPOINT 8
+            {isCalibrated ? 'WAITING FOR FIRST REP' : 'CALIBRATING RANGE OF MOTION'}
           </p>
         </div>
       ) : (
@@ -406,7 +457,9 @@ export default function Session() {
     <div className="max-h-64 overflow-y-auto p-3 lg:max-h-72">
       {feed.length === 0 ? (
         <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
-          {realTrackingMode ? 'REAL-TIME COACHING BEGINS IN CHECKPOINT 8' : 'CUES LAND HERE MID-SET'}
+          {realTrackingMode && !isCalibrated
+            ? 'CALIBRATING — COMPLETE ONE FULL REP'
+            : 'CUES LAND HERE MID-SET'}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -470,7 +523,7 @@ export default function Session() {
                 REOPEN SUMMARY
               </Button>
             )}
-            {phase === 'live' && (
+            {setInProgress && (
               <div className="hidden items-center gap-4 lg:flex">
                 <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
                   <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
@@ -759,22 +812,16 @@ export default function Session() {
                   <Flame className="h-4 w-4 text-primary" /> EFFORT
                 </p>
                 <motion.p
-                  key={realTrackingMode ? 'unavailable' : zone.label}
+                  key={zone.label}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mono-data mt-1 text-xs font-semibold tracking-[0.25em]"
-                  style={{ color: realTrackingMode ? undefined : zone.color }}
+                  style={{ color: zone.color }}
                 >
-                  {realTrackingMode ? 'NOT AVAILABLE' : zone.label}
+                  {zone.label}
                 </motion.p>
               </div>
-              {realTrackingMode ? (
-                <div className="mono-data flex h-[92px] w-[92px] items-center justify-center border-2 border-dashed border-foreground/30 text-2xl text-muted-foreground">
-                  —
-                </div>
-              ) : (
-                <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={92} />
-              )}
+              <EffortDial value={analysisLive ? effort : 0} size={92} />
             </div>
 
             {/* Mobile Detection Badge */}
@@ -800,7 +847,7 @@ export default function Session() {
                             {angle?.toUpperCase()}
                           </span>
                           <span className="border-2 border-foreground bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground">
-                            {confidence}%
+                            {detectionBadge}
                           </span>
                         </span>
                       </div>
@@ -817,8 +864,8 @@ export default function Session() {
                       animate={{ opacity: 1 }}
                       className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
                     >
-                      {realTrackingMode
-                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
+                      {realTrackingMode && !isCalibrated
+                        ? 'CALIBRATING RANGE OF MOTION…'
                         : phase === 'analyzing'
                           ? 'CLASSIFYING MOVEMENT…'
                           : 'NO MOVEMENT DETECTED YET'}
@@ -871,7 +918,7 @@ export default function Session() {
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-serifit text-2xl italic leading-none">{exercise.name}</span>
                         <span className="mono-data border-2 border-foreground bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                          {confidence}%
+                          {detectionBadge}
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -900,8 +947,8 @@ export default function Session() {
                       animate={{ opacity: 1 }}
                       className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
                     >
-                      {realTrackingMode
-                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
+                      {realTrackingMode && !isCalibrated
+                        ? 'CALIBRATING RANGE OF MOTION…'
                         : phase === 'analyzing'
                           ? 'CLASSIFYING MOVEMENT…'
                           : 'NO MOVEMENT DETECTED YET'}
@@ -934,26 +981,20 @@ export default function Session() {
                   <Flame className="h-4 w-4 text-primary" /> EFFORT LEVEL
                 </span>
                 <motion.span
-                  key={realTrackingMode ? 'unavailable' : zone.label}
+                  key={zone.label}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mono-data text-[10px] font-semibold tracking-[0.25em]"
-                  style={{ color: realTrackingMode ? undefined : zone.color }}
+                  style={{ color: zone.color }}
                 >
-                  {realTrackingMode ? 'NOT AVAILABLE' : zone.label}
+                  {zone.label}
                 </motion.span>
               </div>
               <div className="flex items-center justify-around gap-4 p-5">
-                {realTrackingMode ? (
-                  <div className="mono-data flex h-[150px] w-[150px] items-center justify-center border-2 border-dashed border-foreground/30 text-4xl text-muted-foreground">
-                    —
-                  </div>
-                ) : (
-                  <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={150} />
-                )}
+                <EffortDial value={analysisLive ? effort : 0} size={150} />
                 <p className="mono-data max-w-[130px] text-[9px] leading-relaxed tracking-[0.15em] text-muted-foreground">
                   {realTrackingMode
-                    ? 'EFFORT ESTIMATION BEGINS IN CHECKPOINT 8'
+                    ? 'FUSED FROM REP-SPEED DECAY & FORM DEGRADATION'
                     : 'FUSED FROM REP COUNT, REP-SPEED DECAY & FORM DEGRADATION'}
                 </p>
               </div>
@@ -972,7 +1013,7 @@ export default function Session() {
 
       {/* Mobile Sticky Action Bar */}
       <AnimatePresence>
-        {phase === 'live' && (
+        {setInProgress && (
           <motion.div
             initial={{ y: 80 }}
             animate={{ y: 0 }}
