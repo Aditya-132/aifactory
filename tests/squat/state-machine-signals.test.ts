@@ -72,7 +72,7 @@ test('an interrupted lower phase produces unknown depth and withholds torso/cont
   machine.update(frame(200, { kneeAngle: 150, hipAngle: 165, hipVerticalRatio: 2.2, kneeVelocity: -100 }))
   machine.noteInterruption()
   machine.update(frame(300, { kneeAngle: 90, hipAngle: 100, normalizedDepth: 0.1, hipVerticalRatio: 2.8, kneeVelocity: 0 }))
-  machine.update(frame(400, { kneeAngle: 110, hipAngle: 120, normalizedDepth: 2.7, hipVerticalRatio: 2.7, kneeVelocity: 100 }))
+  machine.update(frame(400, { kneeAngle: 110, hipAngle: 120, hipVerticalRatio: 2.7, kneeVelocity: 100 }))
   machine.update(frame(500, { kneeAngle: 175, hipAngle: 175, hipVerticalRatio: 2, kneeVelocity: 100 }))
   const result = machine.update(frame(600))
   assert.equal(result.partial?.depth, 'unknown')
