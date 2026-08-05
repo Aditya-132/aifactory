@@ -8,23 +8,15 @@ import {
   CircleStop,
   Flame,
   MessagesSquare,
+  RefreshCw,
   ScanFace,
   Timer,
   TriangleAlert,
   Upload,
   Video,
+  WifiOff,
   Zap,
 } from 'lucide-react'
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from 'recharts'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,6 +34,11 @@ import {
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
+import VelocityAngleChart from '@/components/VelocityAngleChart'
+import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
+import SettingsModal from '@/components/SettingsModal'
+import { audioEngine } from '@/lib/audioEngine'
+import { saveSessionToHistory } from '@/lib/workoutStore'
 import {
   EXERCISES,
   angleForExercise,
@@ -74,21 +71,38 @@ export default function Session() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [exercise, setExercise] = useState<ExerciseDef | null>(null)
+  const [selectedExerciseId, setSelectedExerciseId] = useState<string>(EXERCISES[0].id)
   const [angle, setAngle] = useState<CameraAngle | null>(null)
   const [confidence, setConfidence] = useState(0)
   const [reps, setReps] = useState<RepData[]>([])
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryTab, setSummaryTab] = useState<'table' | 'graphs'>('table')
   const [tab, setTab] = useState<MobileTab>('coach')
+  const [countdownVal, setCountdownVal] = useState<number>(3)
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const repTimerRef = useRef<number | null>(null)
   const clockRef = useRef<number | null>(null)
+  const countdownTimerRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
   const angleRef = useRef<CameraAngle | null>(null)
+
+  // Network online/offline event monitoring
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false)
+    const handleOffline = () => setIsOffline(true)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
@@ -102,14 +116,17 @@ export default function Session() {
   const clearTimers = useCallback(() => {
     if (repTimerRef.current) window.clearTimeout(repTimerRef.current)
     if (clockRef.current) window.clearInterval(clockRef.current)
+    if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current)
     repTimerRef.current = null
     clockRef.current = null
+    countdownTimerRef.current = null
   }, [])
 
   useEffect(() => {
     return () => {
       clearTimers()
       stopCamera()
+      audioEngine.cancelAll()
     }
   }, [clearTimers, stopCamera])
 
@@ -123,11 +140,16 @@ export default function Session() {
         repsRef.current = [...repsRef.current, rep]
         setReps(repsRef.current)
         pushFeed(rep.cue, rep.severity)
+
+        // Audio HUD feedback trigger
+        audioEngine.playTone(rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep')
+        audioEngine.speakCue(rep.cue, rep.severity === 'crit')
+
         if (rep.effort >= 85) {
-          pushFeed(`Effort at ${rep.effort}% — facial strain & bar speed say you're grinding`, 'info')
+          pushFeed(`Effort at ${rep.effort}% — velocity decay & form degradation detected`, 'info')
         }
-        // the model re-locks onto a new camera angle every few reps —
-        // shows off multi-angle tracking as the lifter (or phone) moves
+
+        // Mid-set camera angle re-lock logic
         if (nextIndex > 1 && (nextIndex - 1) % 3 === 0) {
           const next = nextAngle(ex, angleRef.current)
           if (next !== angleRef.current) {
@@ -142,34 +164,64 @@ export default function Session() {
     [pushFeed],
   )
 
+  const startLiveSet = useCallback(
+    (ex: ExerciseDef) => {
+      setPhase('live')
+      pushFeed(
+        `Movement locked: ${ex.name}. Best viewing angle locked — ${ex.keyJoint.toLowerCase()} angle tracked.`,
+        'info',
+      )
+      pushFeed('Set started — rep counting live', 'info')
+      audioEngine.playTone('go')
+      clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
+      scheduleNextRep(ex)
+    },
+    [pushFeed, scheduleNextRep],
+  )
+
+  const startCountdown = useCallback(
+    (ex: ExerciseDef) => {
+      setPhase('countdown')
+      setCountdownVal(3)
+      audioEngine.playTone('start')
+      let current = 3
+
+      countdownTimerRef.current = window.setInterval(() => {
+        current -= 1
+        if (current > 0) {
+          setCountdownVal(current)
+          audioEngine.playTone('start')
+        } else {
+          if (countdownTimerRef.current) window.clearInterval(countdownTimerRef.current)
+          startLiveSet(ex)
+        }
+      }, 1000)
+    },
+    [startLiveSet],
+  )
+
   const beginAnalysis = useCallback(
     (picked?: ExerciseDef) => {
-      const ex = picked ?? EXERCISES[Math.floor(Math.random() * EXERCISES.length)]
+      const selected = EXERCISES.find((e) => e.id === selectedExerciseId)
+      const ex = picked ?? selected ?? EXERCISES[0]
       setPhase('analyzing')
       pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
+
       window.setTimeout(() => {
         setExercise(ex)
         const a = angleForExercise(ex)
         angleRef.current = a
         setAngle(a)
-        setConfidence(88 + Math.floor(Math.random() * 10))
-        setPhase('live')
-        pushFeed(
-          `Movement classified: ${ex.name}. Best viewing angle locked — ${ex.keyJoint.toLowerCase()} angle tracked.`,
-          'info',
-        )
-        pushFeed('Set started — rep counting live', 'info')
-        clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-        scheduleNextRep(ex)
-      }, 2600)
+        setConfidence(92 + Math.floor(Math.random() * 6))
+        startCountdown(ex)
+      }, 2200)
     },
-    [pushFeed, scheduleNextRep],
+    [selectedExerciseId, pushFeed, startCountdown],
   )
 
   const startCamera = async () => {
     setCameraError(null)
     try {
-      // rear camera on phones — that's the one pointed at the lifter
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false,
@@ -177,10 +229,27 @@ export default function Session() {
       streamRef.current = stream
       setSource('camera')
       if (videoRef.current) videoRef.current.srcObject = stream
+
+      // Camera disconnect listener
+      const track = stream.getVideoTracks()[0]
+      if (track) {
+        track.onended = () => {
+          pushFeed('Camera stream disconnected — workout paused', 'warn')
+          setCameraError('Camera was disconnected. Please reconnect your video device or switch to demo mode.')
+          audioEngine.playTone('warn')
+        }
+      }
+
       beginAnalysis()
-    } catch {
-      setCameraError('Camera access was blocked. Allow camera permission, upload a video, or use demo mode.')
-      setSource('demo')
+    } catch (err: unknown) {
+      const errorObj = err as { name?: string; message?: string }
+      if (errorObj?.name === 'NotAllowedError' || errorObj?.name === 'PermissionDeniedError') {
+        setCameraError('Camera permission denied. Click the lock icon in your browser address bar to allow camera access, or run demo mode.')
+      } else {
+        setCameraError(errorObj?.message || 'Unable to access camera device. Check your device permissions or use demo mode.')
+      }
+      audioEngine.playTone('warn')
+      setSource(null)
     }
   }
 
@@ -196,7 +265,7 @@ export default function Session() {
     beginAnalysis()
   }
 
-  // /session?demo=1 jumps straight into a simulated set (handy for hackathon judging)
+  // Hackathon URL flag support: /session?demo=1
   const autoDemoRef = useRef(false)
   useEffect(() => {
     if (autoDemoRef.current) return
@@ -207,30 +276,34 @@ export default function Session() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const overrideExercise = (id: string) => {
-    const ex = EXERCISES.find((e) => e.id === id)
-    if (!ex) return
-    clearTimers()
-    setExercise(ex)
-    const a = angleForExercise(ex)
-    angleRef.current = a
-    setAngle(a)
-    setConfidence(91 + Math.floor(Math.random() * 7))
-    pushFeed(`Exercise corrected to ${ex.name} — recalibrating tracking`, 'info')
-    clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-    scheduleNextRep(ex)
-  }
-
   const endSession = () => {
     clearTimers()
     stopCamera()
+    audioEngine.cancelAll()
     setPhase('ended')
     setSummaryOpen(true)
+
+    // Save session to localStorage history
+    if (exercise && repsRef.current.length > 0) {
+      const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
+      const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
+      saveSessionToHistory({
+        exerciseName: exercise.name,
+        exerciseId: exercise.id,
+        cameraAngle: angle || exercise.bestAngle,
+        durationSeconds: elapsed,
+        totalReps: repsRef.current.length,
+        avgFormScore: avgForm,
+        peakEffort,
+        reps: repsRef.current,
+      })
+    }
   }
 
   const reset = () => {
     clearTimers()
     stopCamera()
+    audioEngine.cancelAll()
     repsRef.current = []
     angleRef.current = null
     setPhase('setup')
@@ -243,7 +316,11 @@ export default function Session() {
     setElapsed(0)
     setSummaryOpen(false)
     setTab('coach')
+    setCameraError(null)
   }
+
+  const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
+  const rec = currentExDef.recommendation
 
   const latest = reps[reps.length - 1]
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
@@ -259,35 +336,8 @@ export default function Session() {
   ]
 
   const chartEl = (
-    <div className="h-48 p-3">
-      {reps.length === 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            REPS PLOT HERE ONCE YOUR SET STARTS
-          </p>
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
-            <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
-            <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <YAxis yAxisId="l" domain={[0, 100]} tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <YAxis yAxisId="r" orientation="right" unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
-            <Tooltip
-              contentStyle={{
-                background: 'hsl(40 33% 97%)',
-                border: '2px solid hsl(30 8% 7%)',
-                borderRadius: 2,
-                fontSize: 12,
-                fontFamily: 'JetBrains Mono',
-              }}
-              labelStyle={{ color: 'hsl(30 5% 38%)' }}
-            />
-            <Bar yAxisId="l" dataKey="formScore" name="Form score" fill="hsl(16 100% 50%)" maxBarSize={26} />
-            <Line yAxisId="r" type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+    <div className="p-3">
+      <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
     </div>
   )
 
@@ -336,14 +386,30 @@ export default function Session() {
             <span className="text-xl font-bold tracking-tight">
               FORMFIT<span className="text-primary">*</span>
             </span>
-            <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
-              SIMULATED ANALYSIS
-            </span>
+            {isOffline ? (
+              <span className="mono-data border-2 border-amber-600 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700 tracking-[0.15em] flex items-center gap-1">
+                <WifiOff className="h-3 w-3" /> OFFLINE EDGE MODE
+              </span>
+            ) : (
+              <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
+                SIMULATED ANALYSIS
+              </span>
+            )}
           </div>
-          {/* desktop-only: REC + END SET (mobile gets a bottom bar) */}
-          <div className="hidden items-center gap-4 lg:flex">
+
+          <div className="flex items-center gap-3">
+            <SettingsModal />
+            {phase === 'ended' && !summaryOpen && (
+              <Button
+                size="sm"
+                onClick={() => setSummaryOpen(true)}
+                className="hard-shadow-sm border-2 border-foreground bg-primary text-primary-foreground font-mono text-xs font-bold"
+              >
+                REOPEN SUMMARY
+              </Button>
+            )}
             {phase === 'live' && (
-              <>
+              <div className="hidden items-center gap-4 lg:flex">
                 <span className="mono-data flex items-center gap-2 text-xs font-semibold tracking-[0.2em]">
                   <span className="blink-rec inline-block h-2.5 w-2.5 rounded-full bg-primary" />
                   REC {mm}:{ss}
@@ -355,7 +421,7 @@ export default function Session() {
                 >
                   <CircleStop className="mr-1.5 h-4 w-4" /> END SET
                 </Button>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -363,10 +429,9 @@ export default function Session() {
 
       <main className="mx-auto max-w-7xl px-4 py-4 lg:py-6">
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
-          {/* ── Video panel (shared, responsive) ── */}
+          {/* Video panel */}
           <div className="lg:col-span-2">
             <div className="hard-shadow relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-foreground sm:aspect-video">
-              {/* video source */}
               {source === 'camera' && (
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
               )}
@@ -375,34 +440,90 @@ export default function Session() {
               )}
               {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
 
-              {/* setup overlay */}
+              {/* Pre-workout Setup Overlay */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background/90 p-5 text-center z-10 overflow-y-auto backdrop-blur-sm">
                   <div>
-                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">SESSION ROOM</p>
-                    <h1 className="mt-2 text-3xl font-bold uppercase tracking-tight">
-                      Start a <span className="font-serifit normal-case italic text-primary">set</span>
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
+                    <h1 className="mt-1 text-2xl sm:text-3xl font-bold uppercase tracking-tight">
+                      Configure your <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
-                    <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground">
-                      Prop your phone up, upload a clip, or run the simulated demo.
+                    <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
+                      Select your movement to preview the 3D perspective animation and AI camera placement guidelines.
                     </p>
                   </div>
-                  <div className="flex w-full max-w-xs flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+
+                  {/* AI Camera Guidance Box & 3D Preview Window */}
+                  <div className="w-full max-w-sm space-y-3 border-2 border-foreground bg-card p-4 hard-shadow-sm text-left">
+                    <div>
+                      <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
+                        SELECT EXERCISE
+                      </label>
+                      <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
+                        <SelectTrigger className="h-10 w-full border-2 font-mono text-xs font-semibold bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2 font-mono text-xs">
+                          {EXERCISES.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name} ({e.primaryMuscles[0]})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="border-2 border-foreground/20 bg-background p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="mono-data text-[10px] font-bold tracking-wider text-primary flex items-center gap-1.5">
+                          <Camera className="h-3.5 w-3.5" /> AI RECOMMENDED PLACEMENT
+                        </span>
+                        <span className="mono-data border border-foreground bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                          {rec.recommendedCamera.toUpperCase()} VIEW
+                        </span>
+                      </div>
+
+                      {/* Live 3D Pose Canvas Animation Preview Window */}
+                      <div className="relative h-36 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
+                        <div className="bg-grid absolute inset-0" />
+                        <PoseCanvas
+                          exercise={currentExDef}
+                          angle={rec.recommendedCamera}
+                          severity="good"
+                          active={true}
+                        />
+                      </div>
+
+                      <div className="mono-data text-[9px] font-bold text-muted-foreground tracking-wider">
+                        PREVIEW: <span className="text-foreground">{rec.recommendedCamera.toUpperCase()} PERSPECTIVE</span>
+                      </div>
+
+                      <p className="text-xs font-semibold text-foreground">
+                        Position camera in a <span className="text-primary font-bold">{rec.recommendedCamera} View</span> approx <span className="font-bold">{rec.recommendedDistance}</span> away.
+                      </p>
+                      <div className="text-[10px] text-muted-foreground space-y-1 font-mono">
+                        <p><strong>Framing:</strong> {rec.framingGuidance}</p>
+                        <p><strong>Note:</strong> {rec.setupNotes}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex w-full max-w-xs flex-col gap-2.5 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
                     <Button
                       size="lg"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       onClick={startCamera}
                     >
-                      <Camera className="mr-2 h-5 w-5" /> USE CAMERA
+                      <Camera className="mr-2 h-4 w-4" /> START CAMERA
                     </Button>
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-card font-bold transition-transform hover:-translate-y-0.5 sm:w-auto"
                       asChild
                     >
                       <label className="cursor-pointer">
-                        <Upload className="mr-2 h-5 w-5" /> UPLOAD VIDEO
+                        <Upload className="mr-2 h-4 w-4" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -417,23 +538,35 @@ export default function Session() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="hard-shadow-sm h-12 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
+                      className="hard-shadow-sm h-11 w-full border-2 border-foreground bg-foreground font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground sm:w-auto"
                       onClick={startDemo}
                     >
-                      <Zap className="mr-2 h-5 w-5" /> DEMO MODE
+                      <Zap className="mr-2 h-4 w-4" /> DEMO MODE
                     </Button>
                   </div>
+
                   {cameraError && (
-                    <p className="flex max-w-md items-center gap-2 border-2 border-amber-600 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
-                      <TriangleAlert className="h-4 w-4 shrink-0" /> {cameraError}
-                    </p>
+                    <div className="flex flex-col gap-2 max-w-md border-2 border-amber-600 bg-amber-50 p-3 text-left text-xs text-amber-950">
+                      <div className="flex items-center gap-2 font-bold">
+                        <TriangleAlert className="h-4 w-4 text-amber-600 shrink-0" /> CAMERA DIAGNOSTIC ALERT
+                      </div>
+                      <p>{cameraError}</p>
+                      <div className="flex gap-2 pt-1">
+                        <Button size="sm" variant="outline" className="h-8 border-2 border-amber-800 text-[11px] font-bold" onClick={startCamera}>
+                          <RefreshCw className="mr-1 h-3 w-3" /> RETRY CAMERA
+                        </Button>
+                        <Button size="sm" className="h-8 border-2 border-amber-800 bg-amber-600 text-white text-[11px] font-bold" onClick={startDemo}>
+                          <Zap className="mr-1 h-3 w-3" /> USE DEMO MODE
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
 
-              {/* analyzing overlay */}
+              {/* Analyzing Overlay */}
               {phase === 'analyzing' && (
-                <div className="absolute inset-0">
+                <div className="absolute inset-0 z-10">
                   <div className="scanline" />
                   <div className="absolute inset-x-0 bottom-6 flex justify-center">
                     <motion.span
@@ -441,21 +574,38 @@ export default function Session() {
                       animate={{ opacity: 1, y: 0 }}
                       className="mono-data hard-shadow-sm border-2 border-foreground bg-primary px-4 py-2 text-xs font-semibold tracking-[0.2em] text-primary-foreground"
                     >
-                      DETECTING MOVEMENT &amp; ANGLE…
+                      INITIALIZING MODEL &amp; ALIGNING ANGLE…
                     </motion.span>
                   </div>
                 </div>
               )}
 
-              {/* pose overlay */}
+              {/* 3-2-1 Countdown Overlay */}
+              {phase === 'countdown' && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <p className="mono-data text-xs tracking-[0.3em] font-bold text-primary mb-2">GET IN POSITION</p>
+                  <motion.div
+                    key={countdownVal}
+                    initial={{ scale: 2.2, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 350, damping: 20 }}
+                    className="mono-data border-4 border-foreground bg-primary px-8 py-4 text-6xl font-black text-primary-foreground hard-shadow"
+                  >
+                    {countdownVal}
+                  </motion.div>
+                </div>
+              )}
+
+              {/* Pose Overlay */}
               <PoseCanvas
-                exercise={exercise}
+                exercise={phase === 'setup' ? currentExDef : exercise}
                 severity={latest?.severity ?? 'good'}
-                active={phase === 'live'}
-                angle={angle}
+                active={phase === 'live' || phase === 'setup'}
+                angle={phase === 'setup' ? rec.recommendedCamera : angle}
               />
 
-              {/* viewfinder furniture */}
+              {/* Viewfinder Overlay Furniture */}
               {phase === 'live' && (
                 <>
                   {['left-3 top-3 border-l-2 border-t-2', 'right-3 top-3 border-r-2 border-t-2', 'bottom-3 left-3 border-b-2 border-l-2', 'bottom-3 right-3 border-b-2 border-r-2'].map(
@@ -468,27 +618,26 @@ export default function Session() {
                     animate={{ opacity: 1, y: 0 }}
                     className="mono-data absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap border-2 border-foreground bg-background px-3 py-1 text-[10px] font-semibold tracking-[0.2em]"
                   >
-                    {exercise?.name.toUpperCase()} — {angle?.toUpperCase()}
+                    {exercise?.name.toUpperCase()} — {angle?.toUpperCase()} VIEW
                   </motion.span>
                 </>
               )}
             </div>
 
-            {/* desktop chart */}
+            {/* Desktop Dynamic Analytics Chart */}
             <div className="hard-shadow-sm mt-6 hidden border-2 border-foreground bg-card lg:block">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Activity className="h-4 w-4 text-primary" />
                 <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
-                  REP TEMPO × FORM SCORE
+                  REAL-TIME TELEMETRY × VELOCITY DECAY
                 </span>
               </div>
               {chartEl}
             </div>
           </div>
 
-          {/* ── Mobile stack ── */}
+          {/* Mobile Stack */}
           <div className="mt-5 space-y-5 lg:hidden">
-            {/* stats strip */}
             <div className="grid grid-cols-3 gap-3">
               {statTiles.map((s) => (
                 <div key={s.label} className="hard-shadow-sm border-2 border-foreground bg-card p-2.5 text-center">
@@ -506,7 +655,6 @@ export default function Session() {
               ))}
             </div>
 
-            {/* compact effort row */}
             <div className="hard-shadow-sm flex items-center justify-between border-2 border-foreground bg-card px-4 py-3">
               <div>
                 <p className="mono-data flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.25em]">
@@ -525,7 +673,7 @@ export default function Session() {
               <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={92} />
             </div>
 
-            {/* compact detection */}
+            {/* Mobile Detection Badge */}
             <div className="hard-shadow-sm border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2">
                 <ScanFace className="h-4 w-4 text-primary" />
@@ -552,18 +700,11 @@ export default function Session() {
                           </span>
                         </span>
                       </div>
-                      <Select value={exercise.id} onValueChange={overrideExercise}>
-                        <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-2">
-                          {EXERCISES.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {e.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="pt-2">
+                        <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
+                        </p>
+                      </div>
                     </motion.div>
                   ) : (
                     <motion.p
@@ -579,7 +720,6 @@ export default function Session() {
               </div>
             </div>
 
-            {/* tabs: coaching / chart */}
             <div className="hard-shadow-sm border-2 border-foreground bg-card">
               <div className="grid grid-cols-2 border-b-2 border-foreground">
                 {(
@@ -603,9 +743,8 @@ export default function Session() {
             </div>
           </div>
 
-          {/* ── Desktop right rail ── */}
+          {/* Desktop Right Rail */}
           <div className="hidden flex-col gap-5 lg:flex">
-            {/* detection card */}
             <div className="hard-shadow-sm border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <ScanFace className="h-4 w-4 text-primary" />
@@ -637,22 +776,13 @@ export default function Session() {
                           </span>
                         ))}
                       </div>
-                      <div className="pt-3">
-                        <p className="mono-data mb-1.5 text-[9px] tracking-[0.25em] text-muted-foreground">
-                          WRONG LIFT? CORRECT IT:
+                      <div className="pt-2">
+                        <p className="mono-data mb-1 text-[9px] tracking-[0.25em] text-muted-foreground flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> SESSION LOCKED
                         </p>
-                        <Select value={exercise.id} onValueChange={overrideExercise}>
-                          <SelectTrigger className="h-9 w-full border-2 font-semibold">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="border-2">
-                            {EXERCISES.map((e) => (
-                              <SelectItem key={e.id} value={e.id}>
-                                {e.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                          Exercise &amp; camera angle are locked for this set to preserve telemetry integrity.
+                        </p>
                       </div>
                     </motion.div>
                   ) : (
@@ -669,7 +799,6 @@ export default function Session() {
               </div>
             </div>
 
-            {/* stats grid */}
             <div className="grid grid-cols-3 gap-3">
               {statTiles.map((s) => (
                 <div key={s.label} className="hard-shadow-sm border-2 border-foreground bg-card p-3 text-center">
@@ -687,7 +816,6 @@ export default function Session() {
               ))}
             </div>
 
-            {/* effort dial */}
             <div className="hard-shadow-sm border-2 border-foreground bg-card">
               <div className="flex items-center justify-between border-b-2 border-foreground px-4 py-2.5">
                 <span className="mono-data flex items-center gap-2 text-[10px] font-semibold tracking-[0.25em]">
@@ -706,16 +834,15 @@ export default function Session() {
               <div className="flex items-center justify-around gap-4 p-5">
                 <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={150} />
                 <p className="mono-data max-w-[130px] text-[9px] leading-relaxed tracking-[0.15em] text-muted-foreground">
-                  FUSED FROM REP COUNT, REP-SPEED DECAY &amp; FACIAL STRAIN CUES
+                  FUSED FROM REP COUNT, REP-SPEED DECAY &amp; FORM DEGRADATION
                 </p>
               </div>
             </div>
 
-            {/* live coaching feed */}
             <div className="hard-shadow-sm flex-1 border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Timer className="h-4 w-4 text-primary" />
-                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">LIVE COACHING</span>
+                <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">LIVE COACHING FEED</span>
               </div>
               {feedEl}
             </div>
@@ -723,7 +850,7 @@ export default function Session() {
         </div>
       </main>
 
-      {/* mobile sticky action bar while a set is live */}
+      {/* Mobile Sticky Action Bar */}
       <AnimatePresence>
         {phase === 'live' && (
           <motion.div
@@ -750,20 +877,22 @@ export default function Session() {
         )}
       </AnimatePresence>
 
-      {/* Summary dialog */}
+      {/* Summary Dialog with ExerciseSummaryTable & VelocityAngleChart Tabs */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent className="hard-shadow max-h-[90dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-lg">
+        <DialogContent className="hard-shadow max-h-[92dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
               Set summary — {exercise?.name}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
-              {mm}:{ss} — {angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS
+              {mm}:{ss} — {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
             </DialogDescription>
           </DialogHeader>
+
+          {/* Quick Metrics Cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: 'REPS', value: reps.length },
+              { label: 'TOTAL REPS', value: reps.length },
               { label: 'AVG FORM', value: avgForm || '—' },
               { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
               {
@@ -775,7 +904,7 @@ export default function Session() {
                 key={s.label}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.07 }}
+                transition={{ delay: i * 0.05 }}
                 className="hard-shadow-sm border-2 border-foreground bg-background p-3 text-center"
               >
                 <p className="mono-data text-2xl font-semibold text-primary">{s.value}</p>
@@ -783,24 +912,62 @@ export default function Session() {
               </motion.div>
             ))}
           </div>
+
+          {/* Coach's Note Box */}
           <div className="border-2 border-foreground bg-primary/10 p-4">
-            <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
-            <p className="mt-2 text-sm leading-relaxed text-foreground/80">
+            <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S BIOMECHANICAL ASSESSMENT</p>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/90">
               {avgForm >= 80
-                ? 'Strong set. Technique held up under fatigue — keep this load or add a little next time.'
+                ? 'Excellent set execution. Joint kinematics and bar velocity held up under fatigue — keep this load or progress slightly.'
                 : avgForm >= 65
-                  ? 'Solid work, but form slipped as fatigue built. Consider dropping 5–10% and owning every rep.'
+                  ? 'Solid effort, but form degraded during later reps. Consider lowering load by 5–10% to maintain knee and spinal alignment.'
                   : reps.length
-                    ? 'Form broke down early. Lighter load, slower tempo, and film from the side for cleaner tracking.'
-                    : 'No reps recorded — start a set to get a full breakdown.'}
+                    ? 'Technique broke down early under load. Focus on tempo control and review side-view angle telemetry for correction.'
+                    : 'No reps recorded for this session.'}
             </p>
           </div>
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button variant="outline" className="hard-shadow-sm h-12 border-2 font-bold sm:h-10" onClick={reset}>
-              NEW SESSION
+
+          {/* Summary Tab Switcher: Summary Table vs Performance Graphs */}
+          <div className="space-y-3">
+            <div className="flex border-b-2 border-foreground">
+              <button
+                type="button"
+                onClick={() => setSummaryTab('table')}
+                className={`mono-data flex-1 py-2 text-[10px] font-bold tracking-[0.2em] transition-colors ${
+                  summaryTab === 'table' ? 'border-b-2 border-primary bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+                }`}
+              >
+                REP SUMMARY TABLE
+              </button>
+              <button
+                type="button"
+                onClick={() => setSummaryTab('graphs')}
+                className={`mono-data flex-1 py-2 text-[10px] font-bold tracking-[0.2em] transition-colors ${
+                  summaryTab === 'graphs' ? 'border-b-2 border-primary bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+                }`}
+              >
+                VELOCITY &amp; ANGLE CHARTS
+              </button>
+            </div>
+
+            {summaryTab === 'table' ? (
+              <ExerciseSummaryTable reps={reps} />
+            ) : (
+              <div className="border-2 border-foreground bg-background p-3">
+                <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end pt-2">
+            <Button variant="outline" className="hard-shadow-sm h-11 border-2 font-bold" onClick={reset}>
+              NEW SET
             </Button>
-            <Button className="hard-shadow-sm h-12 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90 sm:h-10" onClick={() => setSummaryOpen(false)}>
-              REVIEW FOOTAGE
+            <Button
+              className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90"
+              onClick={() => setSummaryOpen(false)}
+            >
+              CLOSE &amp; REVIEW
             </Button>
           </div>
         </DialogContent>

@@ -9,7 +9,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { useUserSettings, type UserSettings } from '@/lib/workoutStore'
+import { useUserSettings } from '@/lib/workoutStore'
 import type { CameraAngle } from '@/lib/simulation'
 
 export default function SettingsModal() {
