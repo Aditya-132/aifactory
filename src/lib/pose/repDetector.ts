@@ -68,7 +68,10 @@ export interface RepDetectorSnapshot {
   /** Degrees of travel seen so far — drives the "still calibrating" state in the UI. */
   observedRangeDeg: number
   isCalibrated: boolean
+  phase: RepPhase
 }
+
+export type RepPhase = 'IDLE' | 'ECCENTRIC' | 'PEAK_CONTRACTION' | 'CONCENTRIC' | 'REP_COMPLETE'
 
 /**
  * Turns a stream of pose frames into scored reps.
@@ -93,6 +96,8 @@ export class RepDetector {
   private bestRangeDeg = 0
   private reps: RepData[] = []
   private velocities: number[] = []
+  private phase: RepPhase = 'IDLE'
+  private previousKey: number | null = null
 
   constructor(exercise: ExerciseDef) {
     this.exercise = exercise
@@ -102,7 +107,12 @@ export class RepDetector {
 
   get snapshot(): RepDetectorSnapshot {
     const range = this.observedRangeDeg
-    return { reps: this.reps, observedRangeDeg: range, isCalibrated: range >= MIN_RANGE_OF_MOTION_DEG }
+    return {
+      reps: this.reps,
+      observedRangeDeg: range,
+      isCalibrated: range >= MIN_RANGE_OF_MOTION_DEG,
+      phase: this.phase,
+    }
   }
 
   private get observedRangeDeg(): number {
@@ -125,12 +135,15 @@ export class RepDetector {
     this.smoothedKey =
       this.smoothedKey === null ? rawKey : this.smoothedKey + SMOOTHING * (rawKey - this.smoothedKey)
     const key = this.smoothedKey
+    const previousKey = this.previousKey
+    this.previousKey = key
 
     this.observedMin = Math.min(this.observedMin, key)
     this.observedMax = Math.max(this.observedMax, key)
 
     const range = this.observedRangeDeg
     if (range < MIN_RANGE_OF_MOTION_DEG) {
+      this.phase = 'IDLE'
       this.lastTopMs = frame.timestampMs
       return null
     }
@@ -139,10 +152,12 @@ export class RepDetector {
     const topEnter = this.observedMin + range * TOP_ENTER_RATIO
 
     if (this.state === 'top') {
+      this.phase = previousKey !== null && key < previousKey ? this.downwardPhase : 'IDLE'
       if (key > topEnter) this.lastTopMs = frame.timestampMs
       if (key < bottomEnter) {
         this.state = 'bottom'
         this.bottom = { key, timestampMs: frame.timestampMs, angles }
+        this.phase = 'PEAK_CONTRACTION'
       }
       return null
     }
@@ -151,6 +166,9 @@ export class RepDetector {
     if (this.bottom && key < this.bottom.key) {
       this.bottom = { key, timestampMs: frame.timestampMs, angles }
     }
+
+    if (previousKey !== null && key > previousKey) this.phase = this.upwardPhase
+    else if (this.phase !== this.upwardPhase) this.phase = 'PEAK_CONTRACTION'
 
     if (key <= topEnter) return null
 
@@ -164,12 +182,25 @@ export class RepDetector {
     const eccentricTime = (bottom.timestampMs - topMs) / 1000
     const concentricTime = (frame.timestampMs - bottom.timestampMs) / 1000
     const tempo = eccentricTime + concentricTime
-    if (tempo < MIN_REP_SECONDS || tempo > MAX_REP_SECONDS) return null
+    if (tempo < MIN_REP_SECONDS || tempo > MAX_REP_SECONDS) {
+      this.phase = 'IDLE'
+      return null
+    }
 
     const rep = this.buildRep(bottom, key, eccentricTime, concentricTime, tempo)
     this.reps = [...this.reps, rep]
     this.velocities = [...this.velocities, rep.velocity]
+    this.phase = 'REP_COMPLETE'
     return rep
+  }
+
+  /** Elbow flexion is the lifting half of a curl; the other supported lifts descend as their key angle closes. */
+  private get downwardPhase(): Exclude<RepPhase, 'IDLE' | 'PEAK_CONTRACTION' | 'REP_COMPLETE'> {
+    return this.exercise.id === 'curl' ? 'CONCENTRIC' : 'ECCENTRIC'
+  }
+
+  private get upwardPhase(): Exclude<RepPhase, 'IDLE' | 'PEAK_CONTRACTION' | 'REP_COMPLETE'> {
+    return this.exercise.id === 'curl' ? 'ECCENTRIC' : 'CONCENTRIC'
   }
 
   private buildRep(
