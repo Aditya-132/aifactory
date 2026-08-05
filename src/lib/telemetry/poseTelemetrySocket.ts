@@ -36,8 +36,11 @@ export class PoseTelemetrySocket {
   private reconnectTimer: number | null = null
   private reconnectAttempts = 0
   private intentionallyClosed = false
+  private readonly url: string
 
-  constructor(private readonly url: string) {}
+  constructor(url: string) {
+    this.url = url
+  }
 
   connect(): void {
     if (
