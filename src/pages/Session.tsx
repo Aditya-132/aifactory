@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -39,8 +39,10 @@ import { useRepAnalysis } from '@/hooks/useRepAnalysis'
 import VelocityAngleChart from '@/components/VelocityAngleChart'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
 import SettingsModal from '@/components/SettingsModal'
+import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@/lib/biomechanics_v2'
+import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
-import { saveSessionToHistory } from '@/lib/workoutStore'
+import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
 import {
   EXERCISES,
   angleForExercise,
@@ -86,6 +88,7 @@ export default function Session() {
   const [countdownVal, setCountdownVal] = useState<number>(3)
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine)
 
+  const { settings } = useUserSettings()
   const repTimerRef = useRef<number | null>(null)
   const clockRef = useRef<number | null>(null)
   const countdownTimerRef = useRef<number | null>(null)
@@ -372,6 +375,32 @@ export default function Session() {
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
   const zone = zoneFor(effort)
+  const toleranceMode = normalizeFormToleranceMode(settings.sensitivity)
+  const liveFrameMetrics = useMemo(() => {
+    if (!realTrackingMode || !exercise || !poseTracking.latestResult?.poses[0] || !videoSize) return null
+
+    const pose = poseTracking.latestResult.poses[0]
+    const aspectRatio = videoSize.width / videoSize.height
+    const angles = extractFrameAngles(pose.landmarks, aspectRatio)
+    if (!angles) return null
+
+    const formAnalysis = buildRepAnalysis({
+      exerciseId: exercise.id as ExerciseId,
+      mode: toleranceMode,
+      knee_angle: angles.knee,
+      hip_angle: angles.hip,
+      back_angle: angles.back,
+      speedDecayPct: latest ? Math.min(100, Math.max(0, (latest.velocity / Math.max(0.1, latest.tempo)) * 18)) : 12,
+      facialColorShiftPct: 0,
+      formScore: latest?.formScore ?? 75,
+    })
+
+    return {
+      angles,
+      formAnalysis,
+      toleranceMode,
+    }
+  }, [exercise, latest, poseTracking.latestResult, realTrackingMode, toleranceMode, videoSize])
   /** True whenever reps are being scored, whether simulated or tracked from video. */
   const setInProgress = phase === 'live' || (realTrackingMode && phase === 'media')
   const analysisLive = setInProgress || phase === 'ended'
@@ -558,6 +587,34 @@ export default function Session() {
                 />
               )}
               {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
+
+              {liveFrameMetrics && (
+                <div className="absolute inset-x-3 bottom-3 z-20 rounded-none border-2 border-foreground bg-background/95 p-2 shadow-[4px_4px_0_0_rgba(20,17,14,1)] backdrop-blur-sm">
+                  <div className="mono-data mb-1 text-[9px] font-semibold tracking-[0.2em] text-primary">
+                    LIVE ANGLES — {liveFrameMetrics.toleranceMode.toUpperCase()}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px] font-semibold">
+                    {[
+                      ['KNEE', liveFrameMetrics.angles.knee],
+                      ['HIP', liveFrameMetrics.angles.hip],
+                      ['BACK', liveFrameMetrics.angles.back],
+                    ].map(([label, value]) => (
+                      <div key={label} className="border-2 border-foreground bg-card px-1.5 py-1 text-center">
+                        <div className="mono-data text-[8px] text-muted-foreground">{label}</div>
+                        <div className="mt-0.5 font-bold">{Number(value).toFixed(0)}°</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t-2 border-foreground pt-2 text-[9px]">
+                    <span className="mono-data font-semibold tracking-[0.15em] text-muted-foreground">
+                      FORM: {liveFrameMetrics.formAnalysis.formResult.status}
+                    </span>
+                    <span className="mono-data font-semibold tracking-[0.15em] text-primary">
+                      EFFORT: {liveFrameMetrics.formAnalysis.effortResult.level}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Pre-workout Setup Overlay */}
               {phase === 'setup' && (

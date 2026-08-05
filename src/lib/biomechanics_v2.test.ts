@@ -7,6 +7,7 @@ import {
   computeSpeedDecay,
   evaluateExerciseFormTolerance,
   evaluateFormTolerance,
+  normalizeFormToleranceMode,
   type FormToleranceMode,
 } from './biomechanics_v2'
 
@@ -74,6 +75,12 @@ describe('biomechanics_v2 utilities', () => {
     )
 
     expect(shift).toBe(0)
+  })
+
+  it('normalizes the UI sensitivity setting into the tolerance model', () => {
+    expect(normalizeFormToleranceMode('Standard')).toBe('Moderate')
+    expect(normalizeFormToleranceMode('Strict')).toBe('Strict')
+    expect(normalizeFormToleranceMode('Lenient')).toBe('Lenient')
   })
 
   it('derives a live rep score from joint angles and effort inputs', () => {
