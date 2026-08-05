@@ -223,6 +223,58 @@ export function evaluateFormTolerance({
   }
 }
 
+export function buildRepAnalysis({
+  exerciseId,
+  mode,
+  knee_angle,
+  hip_angle,
+  back_angle,
+  speedDecayPct,
+  facialColorShiftPct,
+  formScore,
+}: {
+  exerciseId: ExerciseId
+  mode: FormToleranceMode
+  speedDecayPct: number
+  facialColorShiftPct: number
+  formScore: number
+} & JointAngles): {
+  formResult: FormToleranceResult
+  effortResult: ReturnType<typeof computeEffortIndex>
+  formScore: number
+  effortScore: number
+  severity: 'good' | 'warn' | 'crit'
+} {
+  const formResult = evaluateExerciseFormTolerance({
+    mode,
+    exerciseId,
+    knee_angle,
+    hip_angle,
+    back_angle,
+  })
+
+  const effortResult = computeEffortIndex({
+    speedDecayPct,
+    facialColorShiftPct,
+    formScore,
+  })
+
+  const severity: 'good' | 'warn' | 'crit' =
+    formResult.severity === 'crit' || effortResult.level === 'HIGH'
+      ? 'crit'
+      : formResult.severity === 'warn' || effortResult.level === 'MODERATE'
+        ? 'warn'
+        : 'good'
+
+  return {
+    formResult,
+    effortResult,
+    formScore,
+    effortScore: effortResult.value,
+    severity,
+  }
+}
+
 export function computeSpeedDecay(velocities: number[]): number {
   if (velocities.length < 2) return 0
 
