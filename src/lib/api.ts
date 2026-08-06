@@ -58,6 +58,29 @@ export interface HistoryStats {
   lastSessionAt: string | null
 }
 
+export interface CoachSummary {
+  jobId: string
+  sessionId: string
+  status: 'pending' | 'running' | 'complete' | 'failed'
+  model: string | null
+  headline: string | null
+  summary: string | null
+  focusAreas: string[]
+  nextSession: string | null
+  error: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface TelemetryLog {
+  sessionId: string
+  exerciseId: string
+  exerciseName: string
+  recordedAt: string
+  reps: RepData[]
+  flawCounts: Record<string, number>
+}
+
 export interface SessionPayload {
   exerciseId: string
   exerciseName: string
@@ -171,4 +194,37 @@ export const api = {
   },
 
   stats: () => request<HistoryStats>('/api/workouts/stats'),
+
+  telemetry: (sessionId: string) =>
+    request<TelemetryLog>(`/api/workouts/history/${sessionId}/telemetry`),
+
+  generateSummary: (sessionId: string) =>
+    request<CoachSummary>('/api/workout/generate-summary', {
+      method: 'POST',
+      body: { sessionId },
+    }),
+
+  summaryJob: (jobId: string) =>
+    request<CoachSummary>(`/api/workout/generate-summary/${jobId}`),
+}
+
+const POLL_INTERVAL_MS = 1500
+const POLL_TIMEOUT_MS = 90_000
+
+export async function waitForCoachSummary(
+  jobId: string,
+  isCancelled: () => boolean = () => false,
+): Promise<CoachSummary> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+
+  for (;;) {
+    const job = await api.summaryJob(jobId)
+    if (isCancelled()) return job
+    if (job.status === 'complete' || job.status === 'failed') return job
+    if (Date.now() > deadline) {
+      return { ...job, status: 'failed', error: 'Timed out waiting for the coach summary' }
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    if (isCancelled()) return job
+  }
 }

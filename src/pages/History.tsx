@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import TelemetryDialog from '@/components/TelemetryDialog'
 import { api } from '@/lib/api'
 import type { HistoryItem, HistoryStats } from '@/lib/api'
 import { useAuth } from '@/lib/authContext'
@@ -50,6 +51,7 @@ export default function HistoryPage() {
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<HistoryItem | null>(null)
 
   useEffect(() => {
     if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/history' } })
@@ -198,7 +200,10 @@ export default function HistoryPage() {
                   {items.map((item, i) => (
                     <tr
                       key={item.id}
-                      className={i % 2 === 1 ? 'bg-secondary/40' : undefined}
+                      onClick={() => setSelected(item)}
+                      className={`cursor-pointer transition-colors hover:bg-primary/10 ${
+                        i % 2 === 1 ? 'bg-secondary/40' : ''
+                      }`}
                     >
                       <td className="mono-data px-4 py-3 text-xs text-muted-foreground">
                         {formatDate(item.createdAt)}
@@ -224,6 +229,11 @@ export default function HistoryPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          {items.length > 0 && (
+            <p className="mono-data mt-3 text-[10px] tracking-[0.2em] text-muted-foreground">
+              CLICK A ROW FOR REP-BY-REP TELEMETRY
+            </p>
           )}
         </div>
 
@@ -259,6 +269,8 @@ export default function HistoryPage() {
           </div>
         )}
       </main>
+
+      <TelemetryDialog session={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }
