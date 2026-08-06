@@ -45,6 +45,7 @@ import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@
 import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
+import { api, getStoredToken } from '@/lib/api'
 import {
   EXERCISES,
   angleForExercise,
@@ -85,6 +86,7 @@ export default function Session() {
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const [summaryTab, setSummaryTab] = useState<'table' | 'graphs'>('table')
   const [tab, setTab] = useState<MobileTab>('coach')
   const [countdownVal, setCountdownVal] = useState<number>(3)
@@ -373,11 +375,10 @@ export default function Session() {
     setPhase('ended')
     setSummaryOpen(true)
 
-    // Save session to localStorage history
     if (exercise && repsRef.current.length > 0) {
       const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
       const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
-      saveSessionToHistory({
+      const payload = {
         exerciseName: exercise.name,
         exerciseId: exercise.id,
         cameraAngle: angle || exercise.bestAngle,
@@ -386,7 +387,20 @@ export default function Session() {
         avgFormScore: avgForm,
         peakEffort,
         reps: repsRef.current,
-      })
+      }
+
+      saveSessionToHistory(payload)
+
+      if (getStoredToken()) {
+        setSyncState('saving')
+        api
+          .saveSession(payload)
+          .then(() => setSyncState('saved'))
+          .catch((err) => {
+            console.error('Failed to sync session to the backend', err)
+            setSyncState('failed')
+          })
+      }
     }
   }
 
@@ -1162,6 +1176,20 @@ export default function Session() {
               {mm}:{ss} — {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
             </DialogDescription>
           </DialogHeader>
+
+          {syncState !== 'idle' && (
+            <p
+              className={`mono-data border-2 px-3 py-2 text-[10px] tracking-[0.2em] ${
+                syncState === 'failed'
+                  ? 'border-destructive bg-destructive/10 text-destructive'
+                  : 'border-foreground bg-secondary/50'
+              }`}
+            >
+              {syncState === 'saving' && 'SAVING TO YOUR ACCOUNT…'}
+              {syncState === 'saved' && 'SAVED TO YOUR ACCOUNT — VIEW IT UNDER HISTORY'}
+              {syncState === 'failed' && 'COULD NOT REACH THE SERVER — KEPT ON THIS DEVICE ONLY'}
+            </p>
+          )}
 
           {/* Quick Metrics Cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
