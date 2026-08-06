@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .coach import AnthropicCoach, CoachGenerator
+from .coach import AimlCoach, CoachGenerator
 from .config import load_settings
 from .database import Base, make_engine_and_session_factory
 from .routes.auth import router as auth_router
@@ -32,8 +32,8 @@ def create_app(
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
-    app.state.coach_generator = coach_generator or AnthropicCoach(
-        settings.anthropic_api_key, settings.coach_model
+    app.state.coach_generator = coach_generator or AimlCoach(
+        settings.aiml_api_key, settings.aiml_base_url, settings.coach_model
     )
 
     app.add_middleware(
