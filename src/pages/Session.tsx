@@ -45,6 +45,8 @@ import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@
 import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
+import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
+import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
 import {
   EXERCISES,
   angleForExercise,
@@ -85,6 +87,10 @@ export default function Session() {
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+  const [coachState, setCoachState] = useState<CoachNoteState>('offline')
+  const [coachSummary, setCoachSummary] = useState<CoachSummary | null>(null)
+  const coachAbandonedRef = useRef(false)
   const [summaryTab, setSummaryTab] = useState<'table' | 'graphs'>('table')
   const [tab, setTab] = useState<MobileTab>('coach')
   const [countdownVal, setCountdownVal] = useState<number>(3)
@@ -366,6 +372,13 @@ export default function Session() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(
+    () => () => {
+      coachAbandonedRef.current = true
+    },
+    [],
+  )
+
   const endSession = () => {
     stopPoseTracking()
     clearTimers()
@@ -373,11 +386,10 @@ export default function Session() {
     setPhase('ended')
     setSummaryOpen(true)
 
-    // Save session to localStorage history
     if (exercise && repsRef.current.length > 0) {
       const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
       const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
-      saveSessionToHistory({
+      const payload = {
         exerciseName: exercise.name,
         exerciseId: exercise.id,
         cameraAngle: angle || exercise.bestAngle,
@@ -386,7 +398,31 @@ export default function Session() {
         avgFormScore: avgForm,
         peakEffort,
         reps: repsRef.current,
-      })
+      }
+
+      saveSessionToHistory(payload)
+
+      if (getStoredToken()) {
+        setSyncState('saving')
+        coachAbandonedRef.current = false
+        api
+          .saveSession(payload)
+          .then(async ({ id }) => {
+            setSyncState('saved')
+            setCoachState('pending')
+            const job = await api.generateSummary(id)
+            const finished = await waitForCoachSummary(job.jobId, () => coachAbandonedRef.current)
+            if (coachAbandonedRef.current) return
+            setCoachSummary(finished)
+            setCoachState(finished.status === 'complete' ? 'complete' : 'failed')
+          })
+          .catch((err) => {
+            console.error('Failed to sync session to the backend', err)
+            if (coachAbandonedRef.current) return
+            setSyncState((s) => (s === 'saved' ? s : 'failed'))
+            setCoachState((s) => (s === 'pending' ? 'failed' : s))
+          })
+      }
     }
   }
 
@@ -397,6 +433,10 @@ export default function Session() {
     setPhase('setup')
     setDemoActive(false)
     setTab('coach')
+    coachAbandonedRef.current = true
+    setSyncState('idle')
+    setCoachState('offline')
+    setCoachSummary(null)
   }
 
   const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
@@ -1163,6 +1203,20 @@ export default function Session() {
             </DialogDescription>
           </DialogHeader>
 
+          {syncState !== 'idle' && (
+            <p
+              className={`mono-data border-2 px-3 py-2 text-[10px] tracking-[0.2em] ${
+                syncState === 'failed'
+                  ? 'border-destructive bg-destructive/10 text-destructive'
+                  : 'border-foreground bg-secondary/50'
+              }`}
+            >
+              {syncState === 'saving' && 'SAVING TO YOUR ACCOUNT…'}
+              {syncState === 'saved' && 'SAVED TO YOUR ACCOUNT — VIEW IT UNDER HISTORY'}
+              {syncState === 'failed' && 'COULD NOT REACH THE SERVER — KEPT ON THIS DEVICE ONLY'}
+            </p>
+          )}
+
           {/* Quick Metrics Cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
@@ -1188,18 +1242,19 @@ export default function Session() {
           </div>
 
           {/* Coach's Note Box */}
-          <div className="border-2 border-foreground bg-primary/10 p-4">
-            <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S BIOMECHANICAL ASSESSMENT</p>
-            <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-              {avgForm >= 80
+          <CoachNote
+            state={coachState}
+            summary={coachSummary}
+            fallback={
+              avgForm >= 80
                 ? 'Excellent set execution. Joint kinematics and bar velocity held up under fatigue — keep this load or progress slightly.'
                 : avgForm >= 65
                   ? 'Solid effort, but form degraded during later reps. Consider lowering load by 5–10% to maintain knee and spinal alignment.'
                   : reps.length
                     ? 'Technique broke down early under load. Focus on tempo control and review side-view angle telemetry for correction.'
-                    : 'No reps recorded for this session.'}
-            </p>
-          </div>
+                    : 'No reps recorded for this session.'
+            }
+          />
 
           {/* Summary Tab Switcher: Summary Table vs Performance Graphs */}
           <div className="space-y-3">

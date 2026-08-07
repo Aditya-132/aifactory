@@ -1,6 +1,12 @@
 import pytest
 
-from app.coach import AnthropicCoach, CoachError, build_prompt
+from app.coach import (
+    AimlCoach,
+    CoachError,
+    build_prompt,
+    describe_api_error,
+    parse_coach_json,
+)
 from app.orm import UserProfileRecord, WorkoutSessionRecord
 
 from .conftest import SAMPLE_PAYLOAD
@@ -52,10 +58,89 @@ def test_prompt_reports_a_clean_set():
     assert "Flaws detected across the set: none" in build_prompt(session, None)
 
 
-async def test_anthropic_coach_fails_clearly_without_an_api_key():
-    coach = AnthropicCoach(None, "claude-opus-5")
+def test_prompt_states_the_json_contract():
+    prompt = build_prompt(_session_record(), None)
 
-    with pytest.raises(CoachError, match="ANTHROPIC_API_KEY"):
+    assert "Reply with a single JSON object" in prompt
+    assert '"focusAreas"' in prompt
+
+
+def test_parse_coach_json_reads_a_plain_object():
+    data = parse_coach_json('{"headline": "Good set", "focusAreas": ["Knees out"]}')
+
+    assert data["headline"] == "Good set"
+    assert data["focusAreas"] == ["Knees out"]
+
+
+def test_parse_coach_json_survives_a_markdown_fence():
+    data = parse_coach_json('```json\n{"headline": "Fenced"}\n```')
+
+    assert data["headline"] == "Fenced"
+
+
+def test_parse_coach_json_survives_surrounding_prose():
+    data = parse_coach_json('Sure! Here you go:\n{"headline": "Chatty"}\nHope that helps.')
+
+    assert data["headline"] == "Chatty"
+
+
+def test_parse_coach_json_rejects_a_reply_with_no_object():
+    with pytest.raises(CoachError, match="no JSON object"):
+        parse_coach_json("I cannot help with that.")
+
+
+def test_parse_coach_json_rejects_malformed_json():
+    with pytest.raises(CoachError, match="Could not parse"):
+        parse_coach_json('{"headline": , "summary": }')
+
+
+def test_parse_coach_json_rejects_an_unterminated_object():
+    with pytest.raises(CoachError, match="no JSON object"):
+        parse_coach_json('{"headline": "unterminated')
+
+
+class FakeApiError(Exception):
+    def __init__(self, status_code, body):
+        super().__init__("boom")
+        self.status_code = status_code
+        self.body = body
+
+
+def test_out_of_funds_gets_an_actionable_message_from_the_raw_body():
+    exc = FakeApiError(
+        403,
+        {
+            "message": "You've run out of funds.",
+            "error": {"data": {"kind": "err_insufficent_credits"}},
+        },
+    )
+
+    assert "out of funds" in describe_api_error(exc)
+    assert "aimlapi.com/app/billing" in describe_api_error(exc)
+
+
+def test_out_of_funds_is_recognised_when_the_sdk_unwraps_the_body():
+    exc = FakeApiError(
+        403,
+        {
+            "name": "OutOfFundsException",
+            "message": "You've run out of funds.",
+            "data": {"kind": "err_insufficent_credits"},
+        },
+    )
+
+    assert "out of funds" in describe_api_error(exc)
+
+
+def test_bad_key_and_unknown_model_get_their_own_messages():
+    assert "rejected the API key" in describe_api_error(FakeApiError(401, {}))
+    assert "COACH_MODEL" in describe_api_error(FakeApiError(404, {}))
+
+
+async def test_aiml_coach_fails_clearly_without_an_api_key():
+    coach = AimlCoach(None, "https://api.aimlapi.com/v1", "anthropic/claude-sonnet-4.6")
+
+    with pytest.raises(CoachError, match="AIML_API_KEY"):
         await coach(_session_record(), None)
 
 

@@ -51,9 +51,22 @@ All four require a bearer token and only ever return the caller's own sessions.
 | `GET` | `/api/workout/{sessionId}/coach-summary` | Latest summary for a session |
 
 The job runs off the request path, builds the coach prompt from the session's rep-by-rep
-telemetry plus the lifter's profile, and calls Claude (`claude-opus-5` by default) with a
-JSON schema so the response lands as `{headline, summary, focusAreas, nextSession}`.
-Failures are recorded on the job rather than raised at the caller.
+telemetry plus the lifter's profile, and calls the model through
+[AIML API](https://aimlapi.com/models) — an OpenAI-compatible aggregator — so the response
+lands as `{headline, summary, focusAreas, nextSession}`.
+
+`COACH_MODEL` defaults to `anthropic/claude-sonnet-4.6`. Any AIML model whose `type` is
+`openai/chat-completions` works; `openai/gpt-4o-mini` is a cheaper swap. Note AIML model ids
+are namespaced (`anthropic/...`, `openai/...`) — a bare `gpt-4o` will 404.
+
+The reply is requested as `response_format: {"type": "json_object"}` and the JSON shape is
+also stated in the prompt. If a model rejects `response_format` with a 400 the call is
+retried without it, and the parser tolerates markdown fences and surrounding prose, so
+swapping models does not break parsing.
+
+Failures are recorded on the job rather than raised at the caller, and upstream errors are
+translated into something actionable — an empty AIML balance reports as
+"The AIML API account is out of funds" rather than a bare 403.
 
 The generator is injected via `create_app(coach_generator=...)`, so the suite runs without
 touching the network or needing an API key.
@@ -64,7 +77,7 @@ touching the network or needing an API key.
 cd server
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt   # Windows
-cp .env.example .env                            # set DATABASE_URL, JWT_SECRET, ANTHROPIC_API_KEY
+cp .env.example .env                            # set DATABASE_URL, JWT_SECRET, AIML_API_KEY
 .venv/Scripts/python -m uvicorn app.main:app --port 4000
 ```
 

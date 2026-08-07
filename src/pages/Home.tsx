@@ -12,6 +12,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import AuthNav from '@/components/AuthNav'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { EXERCISES } from '@/lib/simulation'
@@ -176,11 +177,14 @@ export default function Home() {
               </a>
             ))}
           </nav>
-          <Link to="/session">
-            <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
-              START A SET <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
+          <div className="flex items-center gap-4">
+            <AuthNav />
+            <Link to="/session">
+              <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
+                START A SET <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 
