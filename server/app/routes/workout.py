@@ -2,15 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..orm import WorkoutSessionRecord
+from ..deps import get_optional_user
+from ..orm import UserRecord, WorkoutSessionRecord
 from ..schemas import EndSessionPayload, SessionCreated, WorkoutSummary
 
 router = APIRouter(prefix="/api/workout", tags=["workout"])
 
 
 @router.post("/session", response_model=SessionCreated, status_code=201)
-async def create_session(payload: EndSessionPayload, db: AsyncSession = Depends(get_db)):
+async def create_session(
+    payload: EndSessionPayload,
+    db: AsyncSession = Depends(get_db),
+    user: UserRecord | None = Depends(get_optional_user),
+):
     record = WorkoutSessionRecord(
+        user_id=user.id if user is not None else None,
         exercise_id=payload.exerciseId,
         exercise_name=payload.exerciseName,
         camera_angle=payload.cameraAngle,
@@ -27,9 +33,15 @@ async def create_session(payload: EndSessionPayload, db: AsyncSession = Depends(
 
 
 @router.get("/summary/{session_id}", response_model=WorkoutSummary)
-async def get_summary(session_id: str, db: AsyncSession = Depends(get_db)):
+async def get_summary(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: UserRecord | None = Depends(get_optional_user),
+):
     record = await db.get(WorkoutSessionRecord, session_id)
     if record is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if record.user_id is not None and (user is None or user.id != record.user_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return WorkoutSummary(
         id=record.id,

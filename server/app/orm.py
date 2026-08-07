@@ -1,16 +1,69 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, Integer, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
 
 
+def _new_id() -> str:
+    return str(uuid4())
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class UserRecord(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String)
+    display_name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class UserProfileRecord(Base):
+    __tablename__ = "user_profiles"
+
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    fitness_goal: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    experience_level: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    training_days_per_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    primary_exercises: Mapped[list] = mapped_column(JSON, default=list)
+    injuries: Mapped[list] = mapped_column(JSON, default=list)
+    equipment: Mapped[list] = mapped_column(JSON, default=list)
+    onboarding_answers: Mapped[dict] = mapped_column(JSON, default=dict)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class WorkoutSessionRecord(Base):
     __tablename__ = "workout_sessions"
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    user_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     exercise_id: Mapped[str] = mapped_column(String)
     exercise_name: Mapped[str] = mapped_column(String)
     camera_angle: Mapped[str] = mapped_column(String)
@@ -19,6 +72,27 @@ class WorkoutSessionRecord(Base):
     avg_form_score: Mapped[float] = mapped_column(Float)
     peak_effort: Mapped[float] = mapped_column(Float)
     reps: Mapped[list] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (Index("ix_workout_sessions_user_created", "user_id", "created_at"),)
+
+
+class CoachSummaryRecord(Base):
+    __tablename__ = "coach_summaries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("workout_sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    headline: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    focus_areas: Mapped[list] = mapped_column(JSON, default=list)
+    next_session: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
