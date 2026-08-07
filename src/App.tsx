@@ -4,6 +4,7 @@ import Session from './pages/Session'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import History from './pages/History'
+import PastWorkouts from './pages/PastWorkouts'
 import { AuthProvider } from './lib/auth'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/history" element={<History />} />
+        <Route path="/past-workouts" element={<PastWorkouts />} />
       </Routes>
     </AuthProvider>
   )
