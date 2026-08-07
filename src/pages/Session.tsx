@@ -462,7 +462,8 @@ export default function Session() {
       hip_angle: angles.hip,
       back_angle: angles.back,
       speedDecayPct: latest ? Math.min(100, Math.max(0, (latest.velocity / Math.max(0.1, latest.tempo)) * 18)) : 12,
-      facialColorShiftPct: 0,
+      // No facial signal in the browser pipeline — omit it so computeEffortIndex
+      // renormalizes over the remaining signals instead of weighting a phantom 0.
       formScore: latest?.formScore ?? 75,
     })
 
